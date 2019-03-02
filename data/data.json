@@ -20,5 +20,6 @@
     "transparent": 300
   },
 
-  "sound": 0
+  "sound": 1,
+  "music": 1
 }
