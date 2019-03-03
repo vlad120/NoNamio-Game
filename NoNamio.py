@@ -3,6 +3,7 @@ import sys
 from json import loads, dumps
 
 NEON = (57, 255, 20)
+RED = (255, 0, 0)
 BLUE = (0, 0, 255)
 WHITE = (255, 255, 255)
 
@@ -30,32 +31,48 @@ def load_level(number):
 
 
 class Tile(pygame.sprite.Sprite):
-    def __init__(self, game, tile_type, pos_x, pos_y, *groups):
+    name = "tile"
+
+    def __init__(self, game, tile_type, pos_x, pos_y, *groups, name=None):
         super().__init__(game.all_sprites, *groups)
         self.image = game.images[tile_type]
         self.rect = self.image.get_rect().move(game.tile_width * pos_x,
                                                game.tile_height * pos_y)
         self.mask = pygame.mask.from_surface(self.image)
-        self.name = "tile"
+        if name:
+            self.name = name
 
 
 class Enemy(pygame.sprite.Sprite):
+    name = "enemy"
+
     def __init__(self, game, pos_x, pos_y):
-        super().__init__(game.all_sprites, game.enemy_group)
+        super().__init__(game.all_sprites, game.danger_group)
         self.image = game.images["enemy"]
         self.rect = self.image.get_rect().move(game.tile_width * pos_x,
                                                game.tile_height * pos_y)
         self.game = game
         self.direction = 1
-        self.name = "enemy"
 
     def update(self, *args):
-        if pygame.sprite.spritecollide(self, self.game.tiles_group, False):
+        if pygame.sprite.spritecollide(self, self.game.block_group, False):
             self.direction *= -1
-        self.rect.x += self.direction * 2
+        else:
+            # проверка на пустоту под ним
+            for i in range(4):
+                t = (self.rect.width - i) * self.direction
+                self.rect.y += 10
+                self.rect.x += t
+                if not pygame.sprite.spritecollide(self, self.game.block_group, False):
+                    self.direction *= -1
+                self.rect.y -= 10
+                self.rect.x -= t
+        self.rect.x += self.direction * 4
 
 
 class Player(pygame.sprite.Sprite):
+    name = "player"
+
     def __init__(self, game, x, y):
         super().__init__(game.all_sprites)
         self.frames1 = []
@@ -65,7 +82,11 @@ class Player(pygame.sprite.Sprite):
         self.image = self.frames1[self.cur_frame]
         self.rect = self.rect.move(x + (game.tile_width - self.rect.width) // 2, y)
         self.mask = pygame.mask.from_surface(self.image)
-        self.name = "player"
+        self.game = game
+        self.moving_y = (0, 0)
+        self.jumping = False
+        self.moving_x = (0, 0)
+        self.blink = 0
 
     def cut_sheet(self, sheet1, sheet2):
         self.rect = pygame.Rect(0, 0, sheet1.get_width() // 4, sheet1.get_height() // 4)
@@ -77,20 +98,92 @@ class Player(pygame.sprite.Sprite):
                     self.frames2.append(sheet2.subsurface(pygame.Rect(frame_location, self.rect.size)))
 
     def next_pic(self, direction):
-        if direction > 0:
-            self.cur_frame = (self.cur_frame + 1) % len(self.frames1)
-            self.image = self.frames1[self.cur_frame]
-        elif direction < 0:
-            self.cur_frame = (self.cur_frame + 1) % len(self.frames2)
-            self.image = self.frames2[self.cur_frame]
+        if self.blink % 8 == 0:
+            if direction > 0:
+                self.cur_frame = (self.cur_frame + 1) % len(self.frames1)
+                self.image = self.frames1[self.cur_frame]
+            elif direction < 0:
+                self.cur_frame = (self.cur_frame + 1) % len(self.frames2)
+                self.image = self.frames2[self.cur_frame]
+
+    def move(self, x, y):
+        if x:
+            self.moving_x = [x, 5]
+        if y and not self.jumping:
+            self.moving_y = [y, 120]
+
+    def check_collides(self, group, check_win=False):
+        if check_win:
+            for sprite in pygame.sprite.spritecollide(self, group, False):
+                if pygame.sprite.collide_mask(self, sprite) and sprite.name == "flag":
+                    return True
+            return False
+        else:
+            for sprite in pygame.sprite.spritecollide(self, group, False):
+                if pygame.sprite.collide_mask(self, sprite):
+                    if sprite.name in ("enemy", "thorns") and not self.blink:
+                        self.game.lifes -= 1
+                        if self.game.lifes:
+                            self.blink = 50
+                    return True
+            return False
+
+    def update(self, *args):
+        if self.check_collides(self.game.all_sprites, check_win=True) and not self.blink:
+            self.game.victory = True
+            return True
+
+        if self.blink:
+            self.blink -= 1
+            if self.blink % 4 == 0:
+                self.image = self.game.images['empty'] if self.blink % 8 else self.frames1[self.cur_frame]
+        else:
+            self.check_collides(self.game.danger_group)
+
+        # ход по горизонтали
+        i = 0
+        for i in range(int(self.moving_x[1] * (1.5 if self.jumping else 1))):
+            self.rect.x += self.moving_x[0]
+            if self.check_collides(self.game.tiles_group):
+                self.rect.x -= self.moving_x[0]
+                break
+        if i:
+            self.game.player.next_pic(self.moving_x[0])
+        self.moving_x = [0, 0]
+
+        for pic in self.game.game_fon:
+            pic.rect.x += self.moving_x[0] * 2
+
+        # движение по вертикали
+        if self.moving_y[1] > 0:
+            for i in range(8):
+                self.rect.y += self.moving_y[0]
+                if self.check_collides(self.game.tiles_group):
+                    self.rect.y -= self.moving_y[0]
+                    self.moving_y = [0, 0]
+                    return False
+            self.jumping = True
+            self.moving_y[1] -= 8
+            for pic in self.game.game_fon:
+                pic.rect.y += 2
+        else:  # падение
+            for i in range(10):
+                self.rect.y += 1
+                if self.check_collides(self.game.block_group):
+                    self.rect.y -= 1
+                    self.jumping = False
+                    return False
+            for pic in self.game.game_fon:
+                pic.rect.y -= 2
 
 
-class GameFon(pygame.sprite.Sprite):
-    def __init__(self, game):
+class MySprite(pygame.sprite.Sprite):
+    name = "other"
+
+    def __init__(self, game, tile_type, x, y):
         super().__init__(game.all_sprites)
-        self.image = game.images['game_fon']
-        self.rect = self.image.get_rect()
-        self.name = "fon"
+        self.image = game.images[tile_type]
+        self.rect = self.image.get_rect().move(x, y)
 
 
 class Camera:
@@ -104,7 +197,7 @@ class Camera:
     # сдвинуть объект obj на смещение камеры
     def apply(self, obj):
         obj.rect.x += self.dx
-        if obj.name != "fon":
+        if obj.name != "other":
             obj.rect.y += self.dy
 
     # позиционировать камеру на объекте target
@@ -131,14 +224,21 @@ class Game:
         self.images = {
             'box': load_image('box.png'),
             'ground': load_image('ground.png'),
-            'game_fon': load_image('game_fon.jpg'),
+            'game_fon': load_image('game_fon.png'),
+            'game_fon_reflected': load_image('game_fon_reflected.png'),
+            'pause_fon': load_image('pause_fon.png'),
+            'restart': load_image('restart.png'),
             'playerR': load_image('heroR.png'),
             'playerL': load_image('heroL.png'),
+            'empty': load_image('empty.png'),
             'enemy': load_image('ghost.png'),
+            'flag': load_image('flag.png'),
+            'thorns': load_image('thorns.png'),
             'locked_level': load_image('locked_level.png'),
             'coins': load_image('coins.png'),
             'sound': load_image('sound.png'),
             'non_sound': load_image('non_sound.png'),
+            'pause': load_image('pause.png'),
             'music': load_image('music.png'),
             'non_music': load_image('non_music.png')
         }
@@ -150,7 +250,6 @@ class Game:
         except Exception:
             self.null_progress()
 
-
         self.start_ui()
 
     def start_ui(self):
@@ -158,6 +257,7 @@ class Game:
             pass
 
     def menu(self):
+        self.play_fon_music(False)
         self.render_menu_fon()
         self.render_text("NoNamio".ljust(14), self.WIDTH // 2, 80,
                          size=120, color=NEON, italic=True, u=True)
@@ -168,10 +268,10 @@ class Game:
                          size=40, color=WHITE, italic=True)
 
         # словарь координат элементов и их функций
-        all_elements = self.render_bar()
-
+        all_elements = dict()
+        all_elements.update(self.render_bar())
         all_elements.update(self.render_sound_button())
-        all_elements.update(self.render_music_button())
+        all_elements.update(self.render_music_button(do=False))
 
         # рисуем уровни
         offset = 30  # для параллелепипеда
@@ -256,18 +356,35 @@ class Game:
         self.all_sprites = pygame.sprite.Group()
         self.tiles_group = pygame.sprite.Group()
         self.block_group = pygame.sprite.Group()
-        self.enemy_group = pygame.sprite.Group()
+        self.danger_group = pygame.sprite.Group()
 
-        GameFon(self)
-        self.generate_level(level)
+        self.level_map = load_level(level)
+
+        # создание фона на всю ширину карты
+        self.game_fon = []
+        w = self.images['game_fon'].get_width()
+        h = self.images['game_fon'].get_height()
+        for i in range(len(self.level_map[0]) // 30 + 1):
+            self.game_fon.append(MySprite(self, 'game_fon' if i % 2 else 'game_fon_reflected',
+                                          i * w, -h // 3))
+
+        self.generate_level()
         self.camera = Camera(self)
 
-        keys = {273: [False, (0, -1)],  # UP
-                274: [False, (0, 1)],   # DOWN
-                275: [False, (1, 0)],   # LEFT
-                276: [False, (-1, 0)]}  # RIGHT
+        self.lifes = 3
+        self.victory = False
 
-        fps = 30
+        keys = {32:  [False, (0, -1)],  # UP
+                119: [False, (0, -1)],
+                273: [False, (0, -1)],
+
+                275: [False, (1, 0)],   # LEFT
+                100:  [False, (1, 0)],
+
+                276: [False, (-1, 0)],  # RIGHT
+                97: [False, (-1, 0)]}
+
+        fps = 50
         running = True
         while running:
             # обработка событий
@@ -276,7 +393,20 @@ class Game:
                 if event.type == pygame.QUIT:
                     self.close()
 
-                if event.type == pygame.KEYDOWN:
+                # при клике
+                elif event.type == pygame.MOUSEBUTTONDOWN:
+                    x, y = event.pos
+                    if 10 <= x <= 60 and 10 <= y <= 60:
+                        answ = self.pause()
+                        if answ == "RESTART":
+                            self.all_sprites.clear(self.screen, self.images['pause_fon'])
+                            self.start_game(level)
+                            return False
+                        elif answ == "Menu":
+                            return False
+
+                elif event.type == pygame.KEYDOWN:
+                    print(event.key)
                     if event.key in keys:
                         keys[event.key][0] = True
                         if keys[275][0] and keys[276][0]:
@@ -285,9 +415,10 @@ class Game:
                     if event.key in keys:
                         keys[event.key][0] = False
 
+            # проверка нажатых кнопок
             for k in keys:
                 if keys[k][0]:
-                    self.move_player(*keys[k][1])
+                    self.player.move(*keys[k][1])
 
             # обновляем спрайты
             self.all_sprites.update()
@@ -297,9 +428,117 @@ class Game:
             for sprite in self.all_sprites:
                 self.camera.apply(sprite)
             # перерисовываем экран со спрайтами
+            self.screen.fill((0, 0, 0))
             self.all_sprites.draw(self.screen)
 
+            # отображение жизней
+            for i in range(self.lifes):
+                pygame.draw.circle(self.screen, RED, (self.WIDTH - 40 - i * 30, 40), 10)
+
+            # отображение денег
+            self.screen.blit(self.images["coins"], (self.WIDTH - 220, 17))
+            self.render_text(str(self.data["coins"]), self.WIDTH - 170, 27,
+                             size=40, color=WHITE, italic=True)
+
+            # отображение паузы
+            self.screen.blit(self.images['pause'], (10, 10))
+
+            if self.victory:
+                self.win()
+                return True
+            if self.lifes == 0:
+                self.lose()
+                return False
+
             pygame.display.flip()
+            self.clock.tick(fps)
+
+    def pause(self):
+        self.screen.blit(self.images['pause_fon'], (0, 0))
+        all_elements = {(220, 230, 420, 430): "RESTART",
+                        (600, 230, 750, 4300): "CONTINUE"}
+
+        self.screen.blit(self.images['restart'], (220, 230))
+        pygame.draw.polygon(self.screen, WHITE, [(600, 230), (750, 330), (600, 430)])
+
+        all_elements.update(self.render_sound_button(y=230))
+        all_elements.update(self.render_music_button(y=310))
+        all_elements.update(self.render_bar("pause"))
+
+        pygame.display.flip()
+
+        fps = 5
+        while True:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    self.close()
+                    return False
+                # при клике
+                elif event.type == pygame.MOUSEBUTTONDOWN:
+                    x, y = event.pos
+                    element = list(filter(lambda e: e[0] <= x <= e[2] and e[1] <= y <= e[3],
+                                          all_elements.keys()))
+                    if element:
+                        self.play_sound()
+                        element = all_elements[element[0]]
+                        if element in ("RESTART", "CONTINUE"):
+                            return element
+                        elif element == "Menu":
+                            return "Menu"
+                        elif callable(element):
+                            element()
+            self.clock.tick(fps)
+
+    def win(self):
+        self.screen.blit(self.images['pause_fon'], (0, 0))
+        all_elements = dict()
+
+        ###################
+
+        pygame.display.flip()
+
+        fps = 5
+        while True:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    self.close()
+                    return False
+                # при клике
+                elif event.type == pygame.MOUSEBUTTONDOWN:
+                    x, y = event.pos
+                    element = list(filter(lambda e: e[0] <= x <= e[2] and e[1] <= y <= e[3],
+                                          all_elements.keys()))
+                    if element:
+                        element = all_elements[element[0]]
+                        if element:
+                            element()
+                        return False
+            self.clock.tick(fps)
+
+    def lose(self):
+        self.screen.blit(self.images['pause_fon'], (0, 0))
+        all_elements = dict()
+
+        ###################
+
+        pygame.display.flip()
+
+        fps = 5
+        while True:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    self.close()
+                    return False
+                # при клике
+                elif event.type == pygame.MOUSEBUTTONDOWN:
+                    x, y = event.pos
+                    element = list(filter(lambda e: e[0] <= x <= e[2] and e[1] <= y <= e[3],
+                                          all_elements.keys()))
+                    if element:
+                        element = all_elements[element[0]]
+                        if element:
+                            element()
+                        return False
             self.clock.tick(fps)
 
     def new_game(self):
@@ -395,27 +634,19 @@ class Game:
                             return 0
             self.clock.tick(fps)
 
-    def move_player(self, x, y):
-        self.player.rect.x += x * 3
-        self.player.rect.y += y * 3
-        for sprite in self.block_group:
-            if pygame.sprite.collide_mask(self.player, sprite):
-                self.player.rect.x -= x * 3
-                self.player.rect.y -= y * 3
-                return False
-        self.player.next_pic(x)
-
-    def generate_level(self, level):
-        self.level_map = load_level(level)
-
+    def generate_level(self):
         for y in range(len(self.level_map)):
             for x in range(len(self.level_map[0])):
                 if self.level_map[y][x] == '#':
-                    Tile(self, 'ground', x, y, self.block_group, self.tiles_group)
+                    Tile(self, 'ground', x, y, self.block_group, self.tiles_group, name="ground")
+                elif self.level_map[y][x] == '+':
+                    Tile(self, 'box', x, y, self.block_group, self.tiles_group, name="box")
                 elif self.level_map[y][x] == '^':
-                    Tile(self, 'box', x, y, self.block_group, self.tiles_group)
+                    Tile(self, 'thorns', x, y, self.block_group, self.danger_group, name="thorns")
                 elif self.level_map[y][x] == '*':
                     Enemy(self, x, y)
+                elif self.level_map[y][x] == '&':
+                    Tile(self, 'flag', x, y, name="flag")
                 elif self.level_map[y][x] == '@':
                     player = (x, y)
 
@@ -464,10 +695,10 @@ class Game:
         self.screen.blit(img, (x, y))
         return {(x, y, x + img.get_width(), y + img.get_height()): lambda: self.invert("sound")}
 
-    def render_music_button(self, x=30, y=260):
+    def render_music_button(self, x=30, y=260, do=True):
         img = self.images['music' if self.data["music"] else 'non_music']
         self.screen.blit(img, (x, y))
-        return {(x, y, x + img.get_width(), y + img.get_height()): lambda: self.invert("music")}
+        return {(x, y, x + img.get_width(), y + img.get_height()): lambda: self.invert("music", do=do)}
 
     def play_sound(self):
         if self.data["sound"]:
@@ -476,15 +707,15 @@ class Game:
     def play_fon_music(self, val):
         if val and self.data["music"]:
             pygame.mixer.music.load('data/fon_music.wav')
-            pygame.mixer.music.play()
+            pygame.mixer.music.play(-1)
         else:
             pygame.mixer.music.stop()
 
-    def invert(self, parameter):
+    def invert(self, parameter, do=False):
         self.sounds['transition'].stop()
-        if parameter == "music":
-            pygame.mixer.music.stop()
         self.data[parameter] = 0 if self.data[parameter] else 1
+        if parameter == "music" and do:
+            self.play_fon_music(True if self.data[parameter] else False)
 
     def save_progress(self):
         with open('data/data.json', 'w') as data_file:
