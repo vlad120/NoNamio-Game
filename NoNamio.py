@@ -1,11 +1,14 @@
 import pygame
 import sys
 from json import loads, dumps
+from random import choice
 
 NEON = (57, 255, 20)
 RED = (255, 0, 0)
 BLUE = (0, 0, 255)
 WHITE = (255, 255, 255)
+BLACK = (0, 0, 0)
+ORANGE = (255, 165, 0)
 
 
 def load_image(name, color_key=None):
@@ -70,6 +73,31 @@ class Enemy(pygame.sprite.Sprite):
         self.rect.x += self.direction * 4
 
 
+class Coin(pygame.sprite.Sprite):
+    name = "coin"
+
+    def __init__(self, game, x, y):
+        super().__init__(game.all_sprites)
+        self.frames = []
+        self.cut_sheet(load_image("coins_animate.png"))
+        self.cur_frame = 0
+        self.image = self.frames[self.cur_frame]
+        self.rect = self.rect.move(x * game.tile_width + (game.tile_width - self.rect.width) // 2,
+                                   y * game.tile_height + game.tile_height - self.rect.height)
+        self.mask = pygame.mask.from_surface(self.image)
+
+    def cut_sheet(self, sheet):
+        self.rect = pygame.Rect(0, 0, sheet.get_width() // 8, sheet.get_height() // 3)
+        for j in range(3):
+            for i in range(8):
+                frame_location = (self.rect.w * i, self.rect.h * j)
+                self.frames.append(sheet.subsurface(pygame.Rect(frame_location, self.rect.size)))
+
+    def update(self, *args):
+        self.cur_frame = (self.cur_frame + 1) % len(self.frames)
+        self.image = self.frames[self.cur_frame]
+
+
 class Player(pygame.sprite.Sprite):
     name = "player"
 
@@ -77,10 +105,10 @@ class Player(pygame.sprite.Sprite):
         super().__init__(game.all_sprites)
         self.frames1 = []
         self.frames2 = []
-        self.cut_sheet(game.images['playerR'], game.images['playerL'])
+        self.cut_sheet(load_image('heroR.png'), load_image('heroL.png'))
         self.cur_frame = 0
         self.image = self.frames1[self.cur_frame]
-        self.rect = self.rect.move(x + (game.tile_width - self.rect.width) // 2, y)
+        self.rect = self.rect.move(x + (game.tile_width - self.rect.w) // 2, y)
         self.mask = pygame.mask.from_surface(self.image)
         self.game = game
         self.moving_y = (0, 0)
@@ -115,8 +143,12 @@ class Player(pygame.sprite.Sprite):
     def check_collides(self, group, check_win=False):
         if check_win:
             for sprite in pygame.sprite.spritecollide(self, group, False):
-                if pygame.sprite.collide_mask(self, sprite) and sprite.name == "flag":
-                    return True
+                if pygame.sprite.collide_mask(self, sprite):
+                    if sprite.name == "flag":
+                        return True
+                    elif sprite.name == "coin":
+                        self.game.data["coins"] += choice((5, 10, 15, 20))
+                        sprite.kill()
             return False
         else:
             for sprite in pygame.sprite.spritecollide(self, group, False):
@@ -144,7 +176,7 @@ class Player(pygame.sprite.Sprite):
         i = 0
         for i in range(int(self.moving_x[1] * (1.5 if self.jumping else 1))):
             self.rect.x += self.moving_x[0]
-            if self.check_collides(self.game.tiles_group):
+            if self.check_collides(self.game.block_group):
                 self.rect.x -= self.moving_x[0]
                 break
         if i:
@@ -180,10 +212,13 @@ class Player(pygame.sprite.Sprite):
 class MySprite(pygame.sprite.Sprite):
     name = "other"
 
-    def __init__(self, game, tile_type, x, y):
+    def __init__(self, game, img, x, y, abs_coords=False):
         super().__init__(game.all_sprites)
-        self.image = game.images[tile_type]
-        self.rect = self.image.get_rect().move(x, y)
+        self.image = load_image(img) if type(img) == str else img
+        if abs_coords:
+            self.rect = self.image.get_rect().move(x, y)
+        else:
+            self.rect = self.image.get_rect().move(x * game.tile_width, y * game.tile_height)
 
 
 class Camera:
@@ -224,22 +259,18 @@ class Game:
         self.images = {
             'box': load_image('box.png'),
             'ground': load_image('ground.png'),
-            'game_fon': load_image('game_fon.png'),
-            'game_fon_reflected': load_image('game_fon_reflected.png'),
-            'pause_fon': load_image('pause_fon.png'),
-            'restart': load_image('restart.png'),
-            'playerR': load_image('heroR.png'),
-            'playerL': load_image('heroL.png'),
-            'empty': load_image('empty.png'),
+            'thorns': load_image('thorns.png'),
+            'step': load_image('step.png'),
             'enemy': load_image('ghost.png'),
             'flag': load_image('flag.png'),
-            'thorns': load_image('thorns.png'),
-            'locked_level': load_image('locked_level.png'),
-            'coins': load_image('coins.png'),
-            'sound': load_image('sound.png'),
-            'non_sound': load_image('non_sound.png'),
+            'empty': load_image('empty.png'),
             'pause': load_image('pause.png'),
+            'pause_fon': load_image('pause_fon.png'),
+            'coins': load_image('coins.png'),
+            'locked_level': load_image('locked_level.png'),
+            'sound': load_image('sound.png'),
             'music': load_image('music.png'),
+            'non_sound': load_image('non_sound.png'),
             'non_music': load_image('non_music.png')
         }
 
@@ -276,17 +307,19 @@ class Game:
         # рисуем уровни
         offset = 30  # для параллелепипеда
         space = 10  # между рамками
-        frame_width = 50  # размер рамки
+        frame_width = 50  # размер рамки и цифр
         start_x = self.WIDTH // 2 - ((frame_width + offset + space) * len(self.data["levels"]) // 2) + offset
         start_y = 250
         for i in range(8):
             # если открыт
-            if self.data["levels"][str(i + 1)] == 0:
+            if self.data["levels"][str(i + 1)] in (0, "ok"):
                 # рисуем номер
                 n = str(i + 1)
                 x1 = start_x + i * (frame_width + space + offset) + frame_width // (3 * len(n))
                 y1 = start_y + frame_width // 10
-                self.render_text(n, x1, y1, size=frame_width, color=WHITE)
+                rect = self.render_text(n, x1, y1, size=frame_width, color=WHITE, italic=True)
+                if self.data["levels"][n] == "ok":
+                    self.render_text("v", rect.x + rect.width, y1 - frame_width // 5, size=frame_width, color=RED)
             else:
                 # иначе рисуем замок
                 x1 = (start_x + i * (frame_width + space + offset) +
@@ -347,7 +380,7 @@ class Game:
 
     def start_game(self, level):
         # проверка на доступность уровня
-        if self.data["levels"][str(level)] != 0:
+        if self.data["levels"][str(level)] not in (0, "ok"):
             return False
 
         self.play_fon_music(True)
@@ -362,14 +395,18 @@ class Game:
 
         # создание фона на всю ширину карты
         self.game_fon = []
-        w = self.images['game_fon'].get_width()
-        h = self.images['game_fon'].get_height()
+        w = 1800
+        h = 1081
         for i in range(len(self.level_map[0]) // 30 + 1):
-            self.game_fon.append(MySprite(self, 'game_fon' if i % 2 else 'game_fon_reflected',
-                                          i * w, -h // 3))
+            self.game_fon.append(MySprite(self, 'game_fon.png' if i % 2 else 'game_fon_reflected.png',
+                                          i * w, -h // 3, abs_coords=True))
 
         self.generate_level()
         self.camera = Camera(self)
+
+        MySprite(self, self.images["pause"], 10, 10, abs_coords=True)
+
+        MySprite(self, self.images["coins"], self.WIDTH - 270, 17, abs_coords=True)
 
         self.lifes = 3
         self.victory = False
@@ -395,6 +432,7 @@ class Game:
 
                 # при клике
                 elif event.type == pygame.MOUSEBUTTONDOWN:
+                    self.play_sound()
                     x, y = event.pos
                     if 10 <= x <= 60 and 10 <= y <= 60:
                         answ = self.pause()
@@ -406,7 +444,6 @@ class Game:
                             return False
 
                 elif event.type == pygame.KEYDOWN:
-                    print(event.key)
                     if event.key in keys:
                         keys[event.key][0] = True
                         if keys[275][0] and keys[276][0]:
@@ -426,7 +463,8 @@ class Game:
             self.camera.update(self.player)
             # # обновляем положение всех спрайтов
             for sprite in self.all_sprites:
-                self.camera.apply(sprite)
+                if sprite.name != "other":
+                    self.camera.apply(sprite)
             # перерисовываем экран со спрайтами
             self.screen.fill((0, 0, 0))
             self.all_sprites.draw(self.screen)
@@ -436,18 +474,21 @@ class Game:
                 pygame.draw.circle(self.screen, RED, (self.WIDTH - 40 - i * 30, 40), 10)
 
             # отображение денег
-            self.screen.blit(self.images["coins"], (self.WIDTH - 220, 17))
-            self.render_text(str(self.data["coins"]), self.WIDTH - 170, 27,
-                             size=40, color=WHITE, italic=True)
-
-            # отображение паузы
-            self.screen.blit(self.images['pause'], (10, 10))
+            self.render_text(str(self.data["coins"]), self.WIDTH - 220, 27,
+                             size=40, color=BLACK, italic=True)
 
             if self.victory:
-                self.win()
+                answ = self.win(level)
+                if answ in ("RESTART", "NEXT"):
+                    self.all_sprites.clear(self.screen, self.images['pause_fon'])
+                    self.start_game(level + (1 if answ == "NEXT" else 0))
                 return True
+
             if self.lifes == 0:
-                self.lose()
+                answ = self.lose()
+                if answ == "RESTART":
+                    self.all_sprites.clear(self.screen, self.images['pause_fon'])
+                    self.start_game(level)
                 return False
 
             pygame.display.flip()
@@ -458,8 +499,8 @@ class Game:
         all_elements = {(220, 230, 420, 430): "RESTART",
                         (600, 230, 750, 4300): "CONTINUE"}
 
-        self.screen.blit(self.images['restart'], (220, 230))
-        pygame.draw.polygon(self.screen, WHITE, [(600, 230), (750, 330), (600, 430)])
+        self.screen.blit(load_image('restart.png'), (220, 230))
+        pygame.draw.polygon(self.screen, NEON, [(600, 230), (750, 330), (600, 430)])
 
         all_elements.update(self.render_sound_button(y=230))
         all_elements.update(self.render_music_button(y=310))
@@ -481,19 +522,51 @@ class Game:
                     if element:
                         self.play_sound()
                         element = all_elements[element[0]]
-                        if element in ("RESTART", "CONTINUE"):
+                        if element in ("RESTART", "CONTINUE", "Menu"):
                             return element
-                        elif element == "Menu":
-                            return "Menu"
                         elif callable(element):
                             element()
             self.clock.tick(fps)
 
-    def win(self):
+    def win(self, level):
+        self.next_level = 0
+
+        self.data["levels"][str(level)] = "ok"  # уровень пройден
+        if level < len(self.data["levels"]):
+            # если следующий уровень бесплатный, разблокируем
+            if self.data["levels"][str(level + 1)] in (-1, 0):
+                self.data["levels"][str(level + 1)] = 0
+                self.next_level = 1
+        else:
+            # если уровни закончились
+            self.next_level = -1
+
+        # размер вознаграждения
+        coins = choice(range(level * 10, level * 15 + 1, 5))
+        self.data["coins"] += coins
+
         self.screen.blit(self.images['pause_fon'], (0, 0))
         all_elements = dict()
 
-        ###################
+        all_elements.update(self.render_bar("Win"))
+        all_elements.update(self.render_sound_button())
+        all_elements.update(self.render_music_button())
+
+        if self.next_level == 1:
+            self.screen.blit(load_image('restart.png'), (220, 230))
+            self.screen.blit(load_image('next.png'), (600, 230))
+            all_elements.update({(220, 230, 420, 430): "RESTART",
+                                 (600, 230, 750, 430): "NEXT"})
+        elif self.next_level == 0:
+            # доступных уровней нет, но остались платные
+            self.screen.blit(load_image('restart.png'), (400, 230))
+            all_elements.update({(400, 230, 650, 430): "RESTART"})
+        else:
+            self.render_text("YOU WON!!!", None, 200, size=120, color=NEON, center=True)
+            self.render_text("ALL LEVELS UNLOCKED!", None, 350, size=60, color=NEON, center=True)
+
+        self.render_text("YOU GOT {} COINS!".format(coins), self.WIDTH - 400, 50,
+                         size=50, color=BLUE)
 
         pygame.display.flip()
 
@@ -509,17 +582,23 @@ class Game:
                     element = list(filter(lambda e: e[0] <= x <= e[2] and e[1] <= y <= e[3],
                                           all_elements.keys()))
                     if element:
+                        self.play_sound()
                         element = all_elements[element[0]]
-                        if element:
+                        if element in ("RESTART", "NEXT", "Menu"):
+                            return element
+                        elif callable(element):
                             element()
-                        return False
             self.clock.tick(fps)
 
     def lose(self):
         self.screen.blit(self.images['pause_fon'], (0, 0))
-        all_elements = dict()
+        all_elements = {(400, 230, 650, 430): "RESTART"}
 
-        ###################
+        all_elements.update(self.render_bar("LOSE"))
+        all_elements.update(self.render_sound_button())
+        all_elements.update(self.render_music_button())
+
+        self.screen.blit(load_image('restart.png'), (400, 230))
 
         pygame.display.flip()
 
@@ -535,10 +614,12 @@ class Game:
                     element = list(filter(lambda e: e[0] <= x <= e[2] and e[1] <= y <= e[3],
                                           all_elements.keys()))
                     if element:
+                        self.play_sound()
                         element = all_elements[element[0]]
-                        if element:
+                        if element in ("RESTART", "Menu"):
+                            return element
+                        elif callable(element):
                             element()
-                        return False
             self.clock.tick(fps)
 
     def new_game(self):
@@ -643,10 +724,14 @@ class Game:
                     Tile(self, 'box', x, y, self.block_group, self.tiles_group, name="box")
                 elif self.level_map[y][x] == '^':
                     Tile(self, 'thorns', x, y, self.block_group, self.danger_group, name="thorns")
+                elif self.level_map[y][x] == '-':
+                    Tile(self, 'step', x, y, self.block_group, name='step')
                 elif self.level_map[y][x] == '*':
                     Enemy(self, x, y)
                 elif self.level_map[y][x] == '&':
                     Tile(self, 'flag', x, y, name="flag")
+                elif self.level_map[y][x] == "$":
+                    Coin(self, x, y)
                 elif self.level_map[y][x] == '@':
                     player = (x, y)
 
@@ -659,7 +744,7 @@ class Game:
         for y in range(0, self.HEIGHT, 10):
             pygame.draw.line(self.screen, (100, 100, 100), (self.WIDTH, 0), (0, y), 1)
 
-    def render_text(self, text, x, y, size=30, color=(0, 0, 0), italic=False, u=False, center=False):
+    def render_text(self, text, x, y, size=30, color=BLACK, italic=False, u=False, center=False):
         font = pygame.font.Font(None, size)
         font.set_italic(italic)
         font.set_underline(u)
@@ -674,12 +759,15 @@ class Game:
         all_elements = dict()
         x1 = 0
         y1, y2 = 0, 105
-        for place in ["Menu"] + list(places):
-            rect = self.render_text(place, x1 + 55, 30, size=70, color=(255, 165, 0), italic=True)
+        places = ["Menu"] + list(places)
+        n = len(places)
+        for i in range(n):
+            rect = self.render_text(places[i], x1 + 55, 30, size=70,
+                                    color=(RED if i == n - 1 else ORANGE), italic=True)
             x2 = x1 + rect.width + 55
             points = [(x1, y2), (x1 + 55, y1), (x2 + 55, y1), (x2, y2)]
             pygame.draw.polygon(self.screen, (255, 165, 0), points, 5)
-            all_elements[(x1 + 55, y1, x2, y2)] = place
+            all_elements[(x1 + 55, y1, x2, y2)] = places[i]
             x1 = x2
         return all_elements
 
