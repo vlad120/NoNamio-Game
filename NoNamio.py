@@ -63,7 +63,7 @@ class Enemy(pygame.sprite.Sprite):
         else:
             # проверка на пустоту под ним
             for i in range(4):
-                t = (self.rect.width - i) * self.direction
+                t = (self.rect.w - i) * self.direction
                 self.rect.y += 10
                 self.rect.x += t
                 if not pygame.sprite.spritecollide(self, self.game.block_group, False):
@@ -82,8 +82,8 @@ class Coin(pygame.sprite.Sprite):
         self.cut_sheet(load_image("coins_animate.png"))
         self.cur_frame = 0
         self.image = self.frames[self.cur_frame]
-        self.rect = self.rect.move(x * game.tile_width + (game.tile_width - self.rect.width) // 2,
-                                   y * game.tile_height + game.tile_height - self.rect.height)
+        self.rect = self.rect.move(x * game.tile_width + (game.tile_width - self.rect.w) // 2,
+                                   y * game.tile_height + game.tile_height - self.rect.h)
         self.mask = pygame.mask.from_surface(self.image)
 
     def cut_sheet(self, sheet):
@@ -253,7 +253,7 @@ class Game:
 
         pygame.mixer.pre_init(frequency=44100)
         self.sounds = {
-            "transition": pygame.mixer.Sound('data/transition.wav')
+            "transition": pygame.mixer.Sound('data/transition.wav'),
         }
 
         self.images = {
@@ -302,9 +302,9 @@ class Game:
         all_elements = dict()
         all_elements.update(self.render_bar())
         all_elements.update(self.render_sound_button())
-        all_elements.update(self.render_music_button(do=False))
+        all_elements.update(self.render_music_button())
 
-        # рисуем уровни
+        # рисуем строку уровней
         offset = 30  # для параллелепипеда
         space = 10  # между рамками
         frame_width = 50  # размер рамки и цифр
@@ -319,9 +319,9 @@ class Game:
                 y1 = start_y + frame_width // 10
                 rect = self.render_text(n, x1, y1, size=frame_width, color=WHITE, italic=True)
                 if self.data["levels"][n] == "ok":
-                    self.render_text("v", rect.x + rect.width, y1 - frame_width // 5, size=frame_width, color=RED)
+                    self.render_text("v", rect.x + rect.w, y1 - frame_width // 5, size=frame_width, color=RED)
             else:
-                # иначе рисуем замок
+                # иначе замок
                 x1 = (start_x + i * (frame_width + space + offset) +
                       (frame_width - self.images["locked_level"].get_width()) // 2)
                 y1 = start_y + frame_width // 10
@@ -329,7 +329,7 @@ class Game:
 
             rect = pygame.Rect(start_x + i * (frame_width + space + offset), 250, 50, 50)
             # добовляем координаты крайних точек в словарь
-            all_elements[(rect.x, rect.y, rect.x + rect.width, rect.y + rect.width)] = (self.start_game, i + 1)
+            all_elements[(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h)] = (self.start_game, i + 1)
             # обрамляем
             self.frame_obj(rect, offset=offset)
 
@@ -338,7 +338,7 @@ class Game:
         rect = self.render_text("New Game", None, 350, size=80, color=BLUE, center=True)
         self.frame_obj(rect)  # обрамляем
         # добовляем в словарь
-        all_elements[(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height)] = self.new_game
+        all_elements[(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h)] = self.new_game
 
         for new_y, name, func in ((435, "Store", self.store),
                                   (520, "Quit", self.close),
@@ -346,7 +346,7 @@ class Game:
             rect.y = new_y  # снижаем рамку
             self.render_text(name, None, new_y, size=80, color=BLUE, center=True)
             self.frame_obj(rect)
-            all_elements[(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height)] = func
+            all_elements[(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h)] = func
 
         pygame.display.flip()  # обновляем дисплей
 
@@ -358,8 +358,15 @@ class Game:
                 if event.type == pygame.QUIT:
                     if not self.close():
                         self.start_ui()
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == 105:
+                        self.invert_sound()
+                        return True
+                    elif event.key == 111:
+                        self.invert_music()
+                        return True
                 # при клике
-                elif event.type == pygame.MOUSEBUTTONDOWN:
+                elif event.type == pygame.MOUSEBUTTONDOWN and event.button in (1, 3):
                     x, y = event.pos
                     # нахдим, попала ли мышь в область
                     # функционирующих элементов
@@ -391,9 +398,10 @@ class Game:
         self.block_group = pygame.sprite.Group()
         self.danger_group = pygame.sprite.Group()
 
+        # загружаем уровень
         self.level_map = load_level(level)
 
-        # создание фона на всю ширину карты
+        # создаем фон на всю ширину карты
         self.game_fon = []
         w = 1800
         h = 1081
@@ -405,21 +413,16 @@ class Game:
         self.camera = Camera(self)
 
         MySprite(self, self.images["pause"], 10, 10, abs_coords=True)
-
         MySprite(self, self.images["coins"], self.WIDTH - 270, 17, abs_coords=True)
 
         self.lifes = 3
         self.victory = False
 
-        keys = {32:  [False, (0, -1)],  # UP
-                119: [False, (0, -1)],
-                273: [False, (0, -1)],
-
-                275: [False, (1, 0)],   # LEFT
-                100:  [False, (1, 0)],
-
-                276: [False, (-1, 0)],  # RIGHT
-                97: [False, (-1, 0)]}
+        keys = {
+            (0, -1): False,  # UP
+            (1, 0): False,  # LEFT
+            (-1, 0): False   # RIGHT
+        }
 
         fps = 50
         running = True
@@ -429,9 +432,8 @@ class Game:
                 # корректный выход
                 if event.type == pygame.QUIT:
                     self.close()
-
                 # при клике
-                elif event.type == pygame.MOUSEBUTTONDOWN:
+                elif event.type == pygame.MOUSEBUTTONDOWN and event.button in (1, 3):
                     self.play_sound()
                     x, y = event.pos
                     if 10 <= x <= 60 and 10 <= y <= 60:
@@ -442,20 +444,32 @@ class Game:
                             return False
                         elif answ == "Menu":
                             return False
-
+                # обработка нажатия клавиш
                 elif event.type == pygame.KEYDOWN:
-                    if event.key in keys:
-                        keys[event.key][0] = True
-                        if keys[275][0] and keys[276][0]:
-                            keys[275 if event.key == 276 else 276][0] = False
+                    print(event.key)
+                    if event.key in (32, 119, 273):
+                        keys[(0, -1)] = True
+                    elif event.key in (100, 275):
+                        keys[(1, 0)] = True
+                    elif event.key in (97, 276):
+                        keys[(-1, 0)] = True
+                    elif event.key == 105:
+                        self.invert_sound()
+                    elif event.key == 111:
+                        self.invert_music()
+                # обработка отпускания клавиш
                 elif event.type == pygame.KEYUP:
-                    if event.key in keys:
-                        keys[event.key][0] = False
+                    if event.key in (32, 119, 273):
+                        keys[(0, -1)] = False
+                    elif event.key in (100, 275):
+                        keys[(1, 0)] = False
+                    elif event.key in (97, 276):
+                        keys[(-1, 0)] = False
 
             # проверка нажатых кнопок
             for k in keys:
-                if keys[k][0]:
-                    self.player.move(*keys[k][1])
+                if keys[k]:
+                    self.player.move(*k)
 
             # обновляем спрайты
             self.all_sprites.update()
@@ -477,6 +491,7 @@ class Game:
             self.render_text(str(self.data["coins"]), self.WIDTH - 220, 27,
                              size=40, color=BLACK, italic=True)
 
+            # проверка на выигрыш
             if self.victory:
                 answ = self.win(level)
                 if answ in ("RESTART", "NEXT"):
@@ -484,6 +499,7 @@ class Game:
                     self.start_game(level + (1 if answ == "NEXT" else 0))
                 return True
 
+            # проверка на проигрыш
             if self.lifes == 0:
                 answ = self.lose()
                 if answ == "RESTART":
@@ -496,14 +512,13 @@ class Game:
 
     def pause(self):
         self.screen.blit(self.images['pause_fon'], (0, 0))
-        all_elements = {(220, 230, 420, 430): "RESTART",
-                        (600, 230, 750, 4300): "CONTINUE"}
 
         self.screen.blit(load_image('restart.png'), (220, 230))
         pygame.draw.polygon(self.screen, NEON, [(600, 230), (750, 330), (600, 430)])
 
-        all_elements.update(self.render_sound_button(y=230))
-        all_elements.update(self.render_music_button(y=310))
+        all_elements = {(220, 230, 420, 430): "RESTART",
+                        (600, 230, 750, 4300): "CONTINUE"}
+
         all_elements.update(self.render_bar("pause"))
 
         pygame.display.flip()
@@ -514,8 +529,12 @@ class Game:
                 if event.type == pygame.QUIT:
                     self.close()
                     return False
-                # при клике
-                elif event.type == pygame.MOUSEBUTTONDOWN:
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == 105:
+                        self.invert_sound()
+                    elif event.key == 111:
+                        self.invert_music()
+                elif event.type == pygame.MOUSEBUTTONDOWN and event.button in (1, 3):
                     x, y = event.pos
                     element = list(filter(lambda e: e[0] <= x <= e[2] and e[1] <= y <= e[3],
                                           all_elements.keys()))
@@ -524,33 +543,31 @@ class Game:
                         element = all_elements[element[0]]
                         if element in ("RESTART", "CONTINUE", "Menu"):
                             return element
-                        elif callable(element):
-                            element()
             self.clock.tick(fps)
 
     def win(self, level):
-        self.next_level = 0
+        self.play_sound(pygame.mixer.Sound('data/win.wav'))
+        self.next_level = -1
 
         self.data["levels"][str(level)] = "ok"  # уровень пройден
         if level < len(self.data["levels"]):
             # если следующий уровень бесплатный, разблокируем
-            if self.data["levels"][str(level + 1)] in (-1, 0):
+            if self.data["levels"][str(level + 1)] == -1:
                 self.data["levels"][str(level + 1)] = 0
                 self.next_level = 1
-        else:
-            # если уровни закончились
-            self.next_level = -1
+            elif self.data["levels"][str(level + 1)] in (0, "ok"):
+                self.next_level = 1
+            else:
+                self.next_level = 0
 
         # размер вознаграждения
         coins = choice(range(level * 10, level * 15 + 1, 5))
         self.data["coins"] += coins
 
         self.screen.blit(self.images['pause_fon'], (0, 0))
-        all_elements = dict()
 
-        all_elements.update(self.render_bar("Win"))
-        all_elements.update(self.render_sound_button())
-        all_elements.update(self.render_music_button())
+        all_elements = dict()
+        all_elements.update(self.render_bar("WIN"))
 
         if self.next_level == 1:
             self.screen.blit(load_image('restart.png'), (220, 230))
@@ -558,10 +575,11 @@ class Game:
             all_elements.update({(220, 230, 420, 430): "RESTART",
                                  (600, 230, 750, 430): "NEXT"})
         elif self.next_level == 0:
-            # доступных уровней нет, но остались платные
+            # если доступных уровней нет, но остались платные
             self.screen.blit(load_image('restart.png'), (400, 230))
             all_elements.update({(400, 230, 650, 430): "RESTART"})
         else:
+            # если уровни закончились
             self.render_text("YOU WON!!!", None, 200, size=120, color=NEON, center=True)
             self.render_text("ALL LEVELS UNLOCKED!", None, 350, size=60, color=NEON, center=True)
 
@@ -576,8 +594,12 @@ class Game:
                 if event.type == pygame.QUIT:
                     self.close()
                     return False
-                # при клике
-                elif event.type == pygame.MOUSEBUTTONDOWN:
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == 105:
+                        self.invert_sound()
+                    elif event.key == 111:
+                        self.invert_music()
+                elif event.type == pygame.MOUSEBUTTONDOWN and event.button in (1, 3):
                     x, y = event.pos
                     element = list(filter(lambda e: e[0] <= x <= e[2] and e[1] <= y <= e[3],
                                           all_elements.keys()))
@@ -586,19 +608,16 @@ class Game:
                         element = all_elements[element[0]]
                         if element in ("RESTART", "NEXT", "Menu"):
                             return element
-                        elif callable(element):
-                            element()
             self.clock.tick(fps)
 
     def lose(self):
+        self.play_sound(pygame.mixer.Sound('data/lose.wav'))
+
         self.screen.blit(self.images['pause_fon'], (0, 0))
-        all_elements = {(400, 230, 650, 430): "RESTART"}
-
-        all_elements.update(self.render_bar("LOSE"))
-        all_elements.update(self.render_sound_button())
-        all_elements.update(self.render_music_button())
-
         self.screen.blit(load_image('restart.png'), (400, 230))
+
+        all_elements = {(400, 230, 650, 430): "RESTART"}
+        all_elements.update(self.render_bar("LOSE"))
 
         pygame.display.flip()
 
@@ -608,8 +627,12 @@ class Game:
                 if event.type == pygame.QUIT:
                     self.close()
                     return False
-                # при клике
-                elif event.type == pygame.MOUSEBUTTONDOWN:
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == 105:
+                        self.invert_sound()
+                    elif event.key == 111:
+                        self.invert_music()
+                elif event.type == pygame.MOUSEBUTTONDOWN and event.button in (1, 3):
                     x, y = event.pos
                     element = list(filter(lambda e: e[0] <= x <= e[2] and e[1] <= y <= e[3],
                                           all_elements.keys()))
@@ -618,8 +641,6 @@ class Game:
                         element = all_elements[element[0]]
                         if element in ("RESTART", "Menu"):
                             return element
-                        elif callable(element):
-                            element()
             self.clock.tick(fps)
 
     def new_game(self):
@@ -628,12 +649,12 @@ class Game:
 
         rect = self.render_text("YES", 200, 350, size=80, color=BLUE)
         self.frame_obj(rect)
-        all_elements[(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height)] = self.null_progress
+        all_elements[(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h)] = self.null_progress
 
-        rect.x = self.WIDTH - rect.x - rect.width
+        rect.x = self.WIDTH - rect.x - rect.w
         self.render_text("NO", 700, 350, size=80, color=BLUE)
         self.frame_obj(rect)
-        all_elements[(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height)] = None
+        all_elements[(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h)] = None
 
         self.render_text("Are you sure?", None, 130, size=80,
                          color=BLUE, italic=True, center=True)
@@ -648,8 +669,12 @@ class Game:
                 if event.type == pygame.QUIT:
                     self.close()
                     return False
-                # при клике
-                elif event.type == pygame.MOUSEBUTTONDOWN:
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == 105:
+                        self.invert_sound()
+                    elif event.key == 111:
+                        self.invert_music()
+                elif event.type == pygame.MOUSEBUTTONDOWN and event.button in (1, 3):
                     x, y = event.pos
                     element = list(filter(lambda e: e[0] <= x <= e[2] and e[1] <= y <= e[3],
                                           all_elements.keys()))
@@ -675,8 +700,12 @@ class Game:
                 if event.type == pygame.QUIT:
                     if not self.close():
                         self.start_ui()
-                # при клике
-                elif event.type == pygame.MOUSEBUTTONDOWN:
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == 105:
+                        self.invert_sound()
+                    elif event.key == 111:
+                        self.invert_music()
+                elif event.type == pygame.MOUSEBUTTONDOWN and event.button in (1, 3):
                     x, y = event.pos
                     element = list(filter(lambda e: e[0] <= x <= e[2] and e[1] <= y <= e[3],
                                           all_elements.keys()))
@@ -704,8 +733,12 @@ class Game:
                 if event.type == pygame.QUIT:
                     if not self.close():
                         self.start_ui()
-                # при клике
-                elif event.type == pygame.MOUSEBUTTONDOWN:
+                elif event.type == pygame.KEYDOWN:
+                    if event.key == 105:
+                        self.invert_sound()
+                    elif event.key == 111:
+                        self.invert_music()
+                elif event.type == pygame.MOUSEBUTTONDOWN and event.button in (1, 3):
                     x, y = event.pos
                     element = list(filter(lambda e: e[0] <= x <= e[2] and e[1] <= y <= e[3],
                                           all_elements.keys()))
@@ -744,13 +777,14 @@ class Game:
         for y in range(0, self.HEIGHT, 10):
             pygame.draw.line(self.screen, (100, 100, 100), (self.WIDTH, 0), (0, y), 1)
 
-    def render_text(self, text, x, y, size=30, color=BLACK, italic=False, u=False, center=False):
+    def render_text(self, text, x, y, size=30, color=BLACK,
+                    italic=False, u=False, center=False):
         font = pygame.font.Font(None, size)
         font.set_italic(italic)
         font.set_underline(u)
         string_rendered = font.render(text, 1, color)
         rect = string_rendered.get_rect()
-        rect.x = x if not center else self.WIDTH // 2 - rect.width // 2
+        rect.x = x if not center else self.WIDTH // 2 - rect.w // 2
         rect.y = y
         self.screen.blit(string_rendered, rect)
         return rect
@@ -763,8 +797,9 @@ class Game:
         n = len(places)
         for i in range(n):
             rect = self.render_text(places[i], x1 + 55, 30, size=70,
-                                    color=(RED if i == n - 1 else ORANGE), italic=True)
-            x2 = x1 + rect.width + 55
+                                    color=(RED if i == n - 1 else ORANGE),
+                                    italic=(False if i == n - 1 else True))
+            x2 = x1 + rect.w + 55
             points = [(x1, y2), (x1 + 55, y1), (x2 + 55, y1), (x2, y2)]
             pygame.draw.polygon(self.screen, (255, 165, 0), points, 5)
             all_elements[(x1 + 55, y1, x2, y2)] = places[i]
@@ -772,25 +807,28 @@ class Game:
         return all_elements
 
     def frame_obj(self, rect, offset=50):
-        p_list = [(rect.x - offset, rect.y + rect.height),
+        p_list = [(rect.x - offset, rect.y + rect.h),
                   (rect.x, rect.y - 5),
-                  (rect.x + rect.width + offset, rect.y - 5),
-                  (rect.x + rect.width, rect.y + rect.height)]
+                  (rect.x + rect.w + offset, rect.y - 5),
+                  (rect.x + rect.w, rect.y + rect.h)]
         pygame.draw.polygon(self.screen, NEON, p_list, 3)
 
     def render_sound_button(self, x=30, y=200):
         img = self.images['sound' if self.data["sound"] else 'non_sound']
         self.screen.blit(img, (x, y))
-        return {(x, y, x + img.get_width(), y + img.get_height()): lambda: self.invert("sound")}
+        return {(x, y, x + img.get_width(), y + img.get_height()): self.invert_sound}
 
-    def render_music_button(self, x=30, y=260, do=True):
+    def render_music_button(self, x=30, y=260):
         img = self.images['music' if self.data["music"] else 'non_music']
         self.screen.blit(img, (x, y))
-        return {(x, y, x + img.get_width(), y + img.get_height()): lambda: self.invert("music", do=do)}
+        return {(x, y, x + img.get_width(), y + img.get_height()): self.invert_music}
 
-    def play_sound(self):
+    def play_sound(self, sound=None):
         if self.data["sound"]:
-            self.sounds["transition"].play()
+            if sound:
+                sound.play()
+            else:
+                self.sounds["transition"].play()
 
     def play_fon_music(self, val):
         if val and self.data["music"]:
@@ -799,11 +837,18 @@ class Game:
         else:
             pygame.mixer.music.stop()
 
-    def invert(self, parameter, do=False):
+    def invert_sound(self):
         self.sounds['transition'].stop()
-        self.data[parameter] = 0 if self.data[parameter] else 1
-        if parameter == "music" and do:
-            self.play_fon_music(True if self.data[parameter] else False)
+        self.data["sound"] = 0 if self.data["sound"] else 1
+
+    def invert_music(self):
+        self.sounds['transition'].stop()
+        if self.data["music"]:
+            self.data["music"] = 0
+            self.play_fon_music(False)
+        else:
+            self.data["music"] = 1
+            self.play_fon_music(True)
 
     def save_progress(self):
         with open('data/data.json', 'w') as data_file:
@@ -843,12 +888,12 @@ class Game:
 
         rect = self.render_text("YES", 200, 350, size=80, color=BLUE)
         self.frame_obj(rect)
-        all_elements[(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height)] = self.terminate
+        all_elements[(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h)] = self.terminate
 
-        rect.x = self.WIDTH - rect.x - rect.width
+        rect.x = self.WIDTH - rect.x - rect.w
         self.render_text("NO", 700, 350, size=80, color=BLUE)
         self.frame_obj(rect)
-        all_elements[(rect.x, rect.y, rect.x + rect.width, rect.y + rect.height)] = None
+        all_elements[(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h)] = None
 
         self.render_text("Are you sure?", None, 150, size=80, color=BLUE, italic=True, center=True)
 
@@ -861,7 +906,6 @@ class Game:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     self.terminate()
-                # при клике
                 elif event.type == pygame.MOUSEBUTTONDOWN:
                     x, y = event.pos
                     element = list(filter(lambda e: e[0] <= x <= e[2] and e[1] <= y <= e[3],
