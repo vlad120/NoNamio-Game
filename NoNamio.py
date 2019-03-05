@@ -147,7 +147,9 @@ class Player(pygame.sprite.Sprite):
                     if sprite.name == "flag":
                         return True
                     elif sprite.name == "coin":
-                        self.game.data["coins"] += choice((5, 10, 15, 20))
+                        coins = choice(range(2, 11, 2))
+                        self.game.got_coins += coins
+                        self.game.data["coins"] += coins
                         sprite.kill()
             return False
         else:
@@ -178,26 +180,28 @@ class Player(pygame.sprite.Sprite):
             self.rect.x += self.moving_x[0]
             if self.check_collides(self.game.block_group):
                 self.rect.x -= self.moving_x[0]
+                self.moving_x = [0, 0]
                 break
         if i:
             self.game.player.next_pic(self.moving_x[0])
-        self.moving_x = [0, 0]
 
+        # движение фона
         for pic in self.game.game_fon:
-            pic.rect.x += self.moving_x[0] * 2
+            pic.rect.x -= self.moving_x[0] * 2
+        self.moving_x = [0, 0]
 
         # движение по вертикали
         if self.moving_y[1] > 0:
             for i in range(8):
                 self.rect.y += self.moving_y[0]
-                if self.check_collides(self.game.tiles_group):
+                if self.check_collides(self.game.block_group):
                     self.rect.y -= self.moving_y[0]
                     self.moving_y = [0, 0]
                     return False
             self.jumping = True
             self.moving_y[1] -= 8
             for pic in self.game.game_fon:
-                pic.rect.y += 2
+                pic.rect.y += 3
         else:  # падение
             for i in range(10):
                 self.rect.y += 1
@@ -206,7 +210,7 @@ class Player(pygame.sprite.Sprite):
                     self.jumping = False
                     return False
             for pic in self.game.game_fon:
-                pic.rect.y -= 2
+                pic.rect.y -= 3
 
 
 class MySprite(pygame.sprite.Sprite):
@@ -259,6 +263,7 @@ class Game:
         self.images = {
             'box': load_image('box.png'),
             'ground': load_image('ground.png'),
+            'stones': load_image('stones.png'),
             'thorns': load_image('thorns.png'),
             'step': load_image('step.png'),
             'enemy': load_image('ghost.png'),
@@ -301,8 +306,15 @@ class Game:
         # словарь координат элементов и их функций
         all_elements = dict()
         all_elements.update(self.render_bar())
-        all_elements.update(self.render_sound_button())
-        all_elements.update(self.render_music_button())
+
+        # кнопка вкл/окл звука
+        img = self.images['sound' if self.data["sound"] else 'non_sound']
+        self.screen.blit(img, (30, 200))
+        all_elements[(30, 200, 30 + img.get_width(), 200 + img.get_height())] = self.invert_sound
+        # кнопка вкл/откл музыки
+        img = self.images['music' if self.data["music"] else 'non_music']
+        self.screen.blit(img, (30, 260))
+        all_elements[(30, 260, 30 + img.get_width(), 260 + img.get_height())] = self.invert_music
 
         # рисуем строку уровней
         offset = 30  # для параллелепипеда
@@ -358,13 +370,8 @@ class Game:
                 if event.type == pygame.QUIT:
                     if not self.close():
                         self.start_ui()
-                elif event.type == pygame.KEYDOWN:
-                    if event.key == 105:
-                        self.invert_sound()
-                        return True
-                    elif event.key == 111:
-                        self.invert_music()
-                        return True
+                elif self.check_hot_keys(event):
+                    return True
                 # при клике
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button in (1, 3):
                     x, y = event.pos
@@ -401,13 +408,16 @@ class Game:
         # загружаем уровень
         self.level_map = load_level(level)
 
-        # создаем фон на всю ширину карты
+        # создаем фон на всю ширину и высоту карты
         self.game_fon = []
         w = 1800
         h = 1081
         for i in range(len(self.level_map[0]) // 30 + 1):
-            self.game_fon.append(MySprite(self, 'game_fon.png' if i % 2 else 'game_fon_reflected.png',
-                                          i * w, -h // 3, abs_coords=True))
+            for j in range(len(self.level_map) // 15 + 1):
+                img = pygame.transform.flip(load_image('game_fon.png'),
+                                            (i % 2), (j % 2))
+                self.game_fon.append(MySprite(self, img, (-w // 3 + w * i),
+                                              (-h // 3 + h * j), abs_coords=True))
 
         self.generate_level()
         self.camera = Camera(self)
@@ -416,6 +426,7 @@ class Game:
         MySprite(self, self.images["coins"], self.WIDTH - 270, 17, abs_coords=True)
 
         self.lifes = 3
+        self.got_coins = 0
         self.victory = False
 
         keys = {
@@ -446,17 +457,14 @@ class Game:
                             return False
                 # обработка нажатия клавиш
                 elif event.type == pygame.KEYDOWN:
-                    print(event.key)
                     if event.key in (32, 119, 273):
                         keys[(0, -1)] = True
                     elif event.key in (100, 275):
                         keys[(1, 0)] = True
                     elif event.key in (97, 276):
                         keys[(-1, 0)] = True
-                    elif event.key == 105:
-                        self.invert_sound()
-                    elif event.key == 111:
-                        self.invert_music()
+                    else:
+                        self.check_hot_keys(event)
                 # обработка отпускания клавиш
                 elif event.type == pygame.KEYUP:
                     if event.key in (32, 119, 273):
@@ -493,6 +501,7 @@ class Game:
 
             # проверка на выигрыш
             if self.victory:
+
                 answ = self.win(level)
                 if answ in ("RESTART", "NEXT"):
                     self.all_sprites.clear(self.screen, self.images['pause_fon'])
@@ -529,11 +538,6 @@ class Game:
                 if event.type == pygame.QUIT:
                     self.close()
                     return False
-                elif event.type == pygame.KEYDOWN:
-                    if event.key == 105:
-                        self.invert_sound()
-                    elif event.key == 111:
-                        self.invert_music()
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button in (1, 3):
                     x, y = event.pos
                     element = list(filter(lambda e: e[0] <= x <= e[2] and e[1] <= y <= e[3],
@@ -543,13 +547,31 @@ class Game:
                         element = all_elements[element[0]]
                         if element in ("RESTART", "CONTINUE", "Menu"):
                             return element
+                else:
+                    self.check_hot_keys(event)
             self.clock.tick(fps)
 
     def win(self, level):
+        self.play_fon_music(False)
         self.play_sound(pygame.mixer.Sound('data/win.wav'))
-        self.next_level = -1
+        self.screen.blit(self.images['pause_fon'], (0, 0))
 
-        self.data["levels"][str(level)] = "ok"  # уровень пройден
+        if self.data["levels"][str(level)] != "ok":
+            # размер вознаграждения, если уровень пройден впервые
+            self.data["levels"][str(level)] = "ok"
+            coins = choice(range(level * 10, level * 15 + 1, 5))
+        else:
+            coins = choice(range(level * 2, level * 6 + 1, 2))
+
+        self.render_text("YOU GOT {} + {} COINS!".format(self.got_coins, coins), self.WIDTH - 500, 50,
+                         size=50, color=BLUE)
+        self.data["coins"] += coins + self.got_coins
+        self.got_coins = 0
+
+        all_elements = dict()
+        all_elements.update(self.render_bar("WIN"))
+
+        self.next_level = -1
         if level < len(self.data["levels"]):
             # если следующий уровень бесплатный, разблокируем
             if self.data["levels"][str(level + 1)] == -1:
@@ -559,15 +581,6 @@ class Game:
                 self.next_level = 1
             else:
                 self.next_level = 0
-
-        # размер вознаграждения
-        coins = choice(range(level * 10, level * 15 + 1, 5))
-        self.data["coins"] += coins
-
-        self.screen.blit(self.images['pause_fon'], (0, 0))
-
-        all_elements = dict()
-        all_elements.update(self.render_bar("WIN"))
 
         if self.next_level == 1:
             self.screen.blit(load_image('restart.png'), (220, 230))
@@ -583,9 +596,6 @@ class Game:
             self.render_text("YOU WON!!!", None, 200, size=120, color=NEON, center=True)
             self.render_text("ALL LEVELS UNLOCKED!", None, 350, size=60, color=NEON, center=True)
 
-        self.render_text("YOU GOT {} COINS!".format(coins), self.WIDTH - 400, 50,
-                         size=50, color=BLUE)
-
         pygame.display.flip()
 
         fps = 5
@@ -594,11 +604,6 @@ class Game:
                 if event.type == pygame.QUIT:
                     self.close()
                     return False
-                elif event.type == pygame.KEYDOWN:
-                    if event.key == 105:
-                        self.invert_sound()
-                    elif event.key == 111:
-                        self.invert_music()
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button in (1, 3):
                     x, y = event.pos
                     element = list(filter(lambda e: e[0] <= x <= e[2] and e[1] <= y <= e[3],
@@ -608,10 +613,16 @@ class Game:
                         element = all_elements[element[0]]
                         if element in ("RESTART", "NEXT", "Menu"):
                             return element
+                else:
+                    self.check_hot_keys(event)
             self.clock.tick(fps)
 
     def lose(self):
+        self.play_fon_music(False)
         self.play_sound(pygame.mixer.Sound('data/lose.wav'))
+
+        self.data['coins'] -= self.got_coins
+        self.got_coins = 0
 
         self.screen.blit(self.images['pause_fon'], (0, 0))
         self.screen.blit(load_image('restart.png'), (400, 230))
@@ -627,11 +638,6 @@ class Game:
                 if event.type == pygame.QUIT:
                     self.close()
                     return False
-                elif event.type == pygame.KEYDOWN:
-                    if event.key == 105:
-                        self.invert_sound()
-                    elif event.key == 111:
-                        self.invert_music()
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button in (1, 3):
                     x, y = event.pos
                     element = list(filter(lambda e: e[0] <= x <= e[2] and e[1] <= y <= e[3],
@@ -641,6 +647,8 @@ class Game:
                         element = all_elements[element[0]]
                         if element in ("RESTART", "Menu"):
                             return element
+                else:
+                    self.check_hot_keys(event)
             self.clock.tick(fps)
 
     def new_game(self):
@@ -669,11 +677,6 @@ class Game:
                 if event.type == pygame.QUIT:
                     self.close()
                     return False
-                elif event.type == pygame.KEYDOWN:
-                    if event.key == 105:
-                        self.invert_sound()
-                    elif event.key == 111:
-                        self.invert_music()
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button in (1, 3):
                     x, y = event.pos
                     element = list(filter(lambda e: e[0] <= x <= e[2] and e[1] <= y <= e[3],
@@ -683,6 +686,8 @@ class Game:
                         if element:
                             element()
                         return False
+                else:
+                    self.check_hot_keys(event)
             self.clock.tick(fps)
 
     def store(self):
@@ -700,11 +705,6 @@ class Game:
                 if event.type == pygame.QUIT:
                     if not self.close():
                         self.start_ui()
-                elif event.type == pygame.KEYDOWN:
-                    if event.key == 105:
-                        self.invert_sound()
-                    elif event.key == 111:
-                        self.invert_music()
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button in (1, 3):
                     x, y = event.pos
                     element = list(filter(lambda e: e[0] <= x <= e[2] and e[1] <= y <= e[3],
@@ -713,6 +713,8 @@ class Game:
                         self.play_sound()
                         if all_elements[element[0]] == "Menu":
                             return 0
+                else:
+                    self.check_hot_keys(event)
             self.clock.tick(fps)
 
     def help_info(self):
@@ -733,11 +735,6 @@ class Game:
                 if event.type == pygame.QUIT:
                     if not self.close():
                         self.start_ui()
-                elif event.type == pygame.KEYDOWN:
-                    if event.key == 105:
-                        self.invert_sound()
-                    elif event.key == 111:
-                        self.invert_music()
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button in (1, 3):
                     x, y = event.pos
                     element = list(filter(lambda e: e[0] <= x <= e[2] and e[1] <= y <= e[3],
@@ -746,6 +743,8 @@ class Game:
                         self.play_sound()
                         if all_elements[element[0]] == "Menu":
                             return 0
+                else:
+                    self.check_hot_keys(event)
             self.clock.tick(fps)
 
     def generate_level(self):
@@ -755,6 +754,8 @@ class Game:
                     Tile(self, 'ground', x, y, self.block_group, self.tiles_group, name="ground")
                 elif self.level_map[y][x] == '+':
                     Tile(self, 'box', x, y, self.block_group, self.tiles_group, name="box")
+                elif self.level_map[y][x] == '%':
+                    Tile(self, 'stones', x, y, self.block_group, self.tiles_group, name="stones")
                 elif self.level_map[y][x] == '^':
                     Tile(self, 'thorns', x, y, self.block_group, self.danger_group, name="thorns")
                 elif self.level_map[y][x] == '-':
@@ -813,15 +814,14 @@ class Game:
                   (rect.x + rect.w, rect.y + rect.h)]
         pygame.draw.polygon(self.screen, NEON, p_list, 3)
 
-    def render_sound_button(self, x=30, y=200):
-        img = self.images['sound' if self.data["sound"] else 'non_sound']
-        self.screen.blit(img, (x, y))
-        return {(x, y, x + img.get_width(), y + img.get_height()): self.invert_sound}
-
-    def render_music_button(self, x=30, y=260):
-        img = self.images['music' if self.data["music"] else 'non_music']
-        self.screen.blit(img, (x, y))
-        return {(x, y, x + img.get_width(), y + img.get_height()): self.invert_music}
+    def check_hot_keys(self, event):
+        if event.type == pygame.KEYDOWN:
+            if event.key == 105:
+                self.invert_sound()
+                return True
+            elif event.key == 111:
+                self.invert_music()
+                return True
 
     def play_sound(self, sound=None):
         if self.data["sound"]:
