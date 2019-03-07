@@ -1,1 +1,1 @@
-{"levels": {"1": "ok", "2": "ok", "3": "ok", "4": "ok", "5": 0, "6": 100, "7": 100, "8": 100}, "coins": 296, "heroes": {"classic": 0, "red": 50, "blue": 50, "green": 100, "transparent": 300}, "sound": 1, "music": 0}
+{"levels": {"1": 0, "2": 0, "3": 0, "4": 0, "5": 0, "6": "ok", "7": 150, "8": 0}, "coins": 9759, "hero_colors": {"classic_hero": 0, "red_hero": 0, "blue_hero": 0, "green_hero": "ok", "transparent_hero": 0}, "sound": 1, "music": 0}

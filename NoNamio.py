@@ -103,20 +103,26 @@ class Player(pygame.sprite.Sprite):
 
     def __init__(self, game, x, y):
         super().__init__(game.all_sprites)
+        self.game = game
         self.frames1 = []
         self.frames2 = []
-        self.cut_sheet(load_image('heroR.png'), load_image('heroL.png'))
+        hero = list(filter(lambda h: self.game.data["hero_colors"][h] == "ok", self.game.data["hero_colors"]))[0]
+        if hero == "transparent_hero":
+            self.cut_sheets(load_image('heroes/{}R.png'.format(hero), color_key=(0, 0, 0, 0)),
+                            load_image('heroes/{}L.png'.format(hero), color_key=(0, 0, 0, 0)))
+        else:
+            self.cut_sheets(load_image('heroes/{}R.png'.format(hero)),
+                            load_image('heroes/{}L.png'.format(hero)))
         self.cur_frame = 0
         self.image = self.frames1[self.cur_frame]
         self.rect = self.rect.move(x + (game.tile_width - self.rect.w) // 2, y)
         self.mask = pygame.mask.from_surface(self.image)
-        self.game = game
         self.moving_y = (0, 0)
         self.jumping = False
         self.moving_x = (0, 0)
         self.blink = 0
 
-    def cut_sheet(self, sheet1, sheet2):
+    def cut_sheets(self, sheet1, sheet2):
         self.rect = pygame.Rect(0, 0, sheet1.get_width() // 4, sheet1.get_height() // 4)
         for j in range(4):
             for i in range(4):
@@ -146,8 +152,8 @@ class Player(pygame.sprite.Sprite):
                 if pygame.sprite.collide_mask(self, sprite):
                     if sprite.name == "flag":
                         return True
-                    elif sprite.name == "coin":
-                        coins = choice(range(2, 11, 2))
+                    elif sprite.name == "coin":  # сбор монет
+                        coins = choice(range(2, 6))
                         self.game.got_coins += coins
                         self.game.data["coins"] += coins
                         sprite.kill()
@@ -257,7 +263,7 @@ class Game:
 
         pygame.mixer.pre_init(frequency=44100)
         self.sounds = {
-            "transition": pygame.mixer.Sound('data/transition.wav'),
+            "transition": pygame.mixer.Sound('data/sounds & music/transition.wav'),
         }
 
         self.images = {
@@ -273,6 +279,7 @@ class Game:
             'pause_fon': load_image('pause_fon.png'),
             'coins': load_image('coins.png'),
             'locked_level': load_image('locked_level.png'),
+            'locked_level_pay': load_image('locked_level_pay.png'),
             'sound': load_image('sound.png'),
             'music': load_image('music.png'),
             'non_sound': load_image('non_sound.png'),
@@ -323,10 +330,10 @@ class Game:
         start_x = self.WIDTH // 2 - ((frame_width + offset + space) * len(self.data["levels"]) // 2) + offset
         start_y = 250
         for i in range(8):
+            n = str(i + 1)
             # если открыт
-            if self.data["levels"][str(i + 1)] in (0, "ok"):
+            if self.data["levels"][n] in (0, "ok"):
                 # рисуем номер
-                n = str(i + 1)
                 x1 = start_x + i * (frame_width + space + offset) + frame_width // (3 * len(n))
                 y1 = start_y + frame_width // 10
                 rect = self.render_text(n, x1, y1, size=frame_width, color=WHITE, italic=True)
@@ -337,7 +344,9 @@ class Game:
                 x1 = (start_x + i * (frame_width + space + offset) +
                       (frame_width - self.images["locked_level"].get_width()) // 2)
                 y1 = start_y + frame_width // 10
-                self.screen.blit(self.images["locked_level"], (x1, y1))
+                # если уровень платный, выводим замок другого цвета
+                img = self.images["locked_level" if self.data["levels"][n] == -1 else "locked_level_pay"]
+                self.screen.blit(img, (x1, y1))
 
             rect = pygame.Rect(start_x + i * (frame_width + space + offset), 250, 50, 50)
             # добовляем координаты крайних точек в словарь
@@ -412,8 +421,8 @@ class Game:
         self.game_fon = []
         w = 1800
         h = 1081
-        for i in range(len(self.level_map[0]) // 30 + 1):
-            for j in range(len(self.level_map) // 15 + 1):
+        for i in range(len(self.level_map[0]) // 25 + 1):
+            for j in range(len(self.level_map) // 10 + 1):
                 img = pygame.transform.flip(load_image('game_fon.png'),
                                             (i % 2), (j % 2))
                 self.game_fon.append(MySprite(self, img, (-w // 3 + w * i),
@@ -553,7 +562,7 @@ class Game:
 
     def win(self, level):
         self.play_fon_music(False)
-        self.play_sound(pygame.mixer.Sound('data/win.wav'))
+        self.play_sound(pygame.mixer.Sound('data/sounds & music/win.wav'))
         self.screen.blit(self.images['pause_fon'], (0, 0))
 
         if self.data["levels"][str(level)] != "ok":
@@ -561,10 +570,14 @@ class Game:
             self.data["levels"][str(level)] = "ok"
             coins = choice(range(level * 10, level * 15 + 1, 5))
         else:
-            coins = choice(range(level * 2, level * 6 + 1, 2))
+            coins = choice(range(level * 2, level * 5 + 1, 2))
 
+        # учитываем в вознаграждении оставшиеся жизни
+        coins = int(coins * self.lifes * 2 / 3)
+        # выводим на экран
         self.render_text("YOU GOT {} + {} COINS!".format(self.got_coins, coins), self.WIDTH - 500, 50,
                          size=50, color=BLUE)
+        # сохраняем
         self.data["coins"] += coins + self.got_coins
         self.got_coins = 0
 
@@ -619,7 +632,7 @@ class Game:
 
     def lose(self):
         self.play_fon_music(False)
-        self.play_sound(pygame.mixer.Sound('data/lose.wav'))
+        self.play_sound(pygame.mixer.Sound('data/sounds & music/lose.wav'))
 
         self.data['coins'] -= self.got_coins
         self.got_coins = 0
@@ -692,10 +705,73 @@ class Game:
 
     def store(self):
         self.render_menu_fon()
+
+        self.screen.blit(self.images["coins"], (self.WIDTH - 200, 45))
+
+        self.render_text(str(self.data["coins"]), self.WIDTH - 150, 53,
+                         size=40, color=WHITE, italic=True)
+
         all_elements = dict()
         all_elements.update(self.render_bar("store"))
 
-        ###########
+        # цвета героя
+        self.render_text("Additional colors:", None, 130, size=35,
+                         color=WHITE, italic=True, center=True)
+        colors = list(self.data['hero_colors'])
+        n = len(colors)
+        for i in range(n):
+            curr_x = int((self.WIDTH // (n + 1)) * (i + 0.6))
+            c = colors[i]
+            rect = self.render_text(c[:-5], curr_x, 300, size=35, color=WHITE)
+
+            # изображение
+            pic = pygame.Surface((44, 70))
+            pic.fill((255, 255, 255, 150))
+            pic.blit(load_image("heroes/{}L.png".format(colors[i])).subsurface(
+                pygame.Rect(0, 0, 44, 70)), (0, 0)
+            )
+            rect_pic = pygame.Rect(rect.x + (rect.w - 44) // 2, 200, 44, 70)
+            self.screen.blit(pic, (rect_pic.x, rect_pic.y))
+
+            # стоимость
+            cost = self.data['hero_colors'][c]
+            if type(cost) is int and cost:
+                func = (self.buy_thing, 'hero_colors', c)
+                rect = self.render_text(str(cost) + '$', None, 350,
+                                        size=45, color=WHITE, center=(rect.x, rect.w))
+                self.frame_obj(rect)
+            else:
+                # если куплен
+                func = (self.choose_thing, 'hero_colors', c)
+                if cost == 'ok':
+                    rect = self.render_text(' ok ', None, 350,
+                                            size=45, color=BLUE, center=(rect.x, rect.w))
+                else:
+                    rect = rect_pic
+
+            # добавление в словарь элемента
+            all_elements[(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h)] = func
+
+        # доп. уровни
+        levels = list(filter(lambda lev: type(self.data['levels'][lev]) is int and self.data['levels'][lev],
+                             list(self.data['levels'])[5:]
+                             )
+                      )
+        if levels:
+            self.render_text("Additional levels:", None, self.HEIGHT - 260,
+                             size=35, color=WHITE, italic=True, center=True)
+            n = len(levels)
+            for i in range(n):
+                w = int((self.WIDTH // (n + 1)) * (i + 1))
+                level = levels[i]
+                rect = self.render_text(level, w, self.HEIGHT - 200, size=60, color=WHITE)
+
+                cost = self.data['levels'][level]
+                rect = self.render_text(str(cost) + '$', None, self.HEIGHT - 120,
+                                        size=45, color=WHITE, center=(rect.x, rect.w))
+                func = (self.buy_thing, 'levels', level)
+                self.frame_obj(rect)
+                all_elements[(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h)] = func
 
         pygame.display.flip()
 
@@ -705,16 +781,23 @@ class Game:
                 if event.type == pygame.QUIT:
                     if not self.close():
                         self.start_ui()
+                elif self.check_hot_keys(event):
+                    return True
+                # при клике
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button in (1, 3):
                     x, y = event.pos
                     element = list(filter(lambda e: e[0] <= x <= e[2] and e[1] <= y <= e[3],
                                           all_elements.keys()))
                     if element:
                         self.play_sound()
-                        if all_elements[element[0]] == "Menu":
-                            return 0
-                else:
-                    self.check_hot_keys(event)
+                        element = all_elements[element[0]]
+                        if type(element) == str:
+                            if element == "Menu":
+                                return True
+                        elif type(element) == tuple:
+                            if element[0](*element[1:]):
+                                self.store()
+                                return True
             self.clock.tick(fps)
 
     def help_info(self):
@@ -779,13 +862,21 @@ class Game:
             pygame.draw.line(self.screen, (100, 100, 100), (self.WIDTH, 0), (0, y), 1)
 
     def render_text(self, text, x, y, size=30, color=BLACK,
-                    italic=False, u=False, center=False):
+                    italic=False, u=False, center=()):
         font = pygame.font.Font(None, size)
         font.set_italic(italic)
         font.set_underline(u)
         string_rendered = font.render(text, 1, color)
         rect = string_rendered.get_rect()
-        rect.x = x if not center else self.WIDTH // 2 - rect.w // 2
+        if center:
+            if center is True:
+                rect.x = self.WIDTH // 2 - rect.w // 2
+            elif type(center) == tuple:
+                x = center[0]
+                w = center[1]
+                rect.x = x + (w - rect.w) // 2
+        else:
+            rect.x = x
         rect.y = y
         self.screen.blit(string_rendered, rect)
         return rect
@@ -807,12 +898,12 @@ class Game:
             x1 = x2
         return all_elements
 
-    def frame_obj(self, rect, offset=50):
+    def frame_obj(self, rect, offset=50, color=NEON, w=3):
         p_list = [(rect.x - offset, rect.y + rect.h),
                   (rect.x, rect.y - 5),
                   (rect.x + rect.w + offset, rect.y - 5),
                   (rect.x + rect.w, rect.y + rect.h)]
-        pygame.draw.polygon(self.screen, NEON, p_list, 3)
+        pygame.draw.polygon(self.screen, color, p_list, w)
 
     def check_hot_keys(self, event):
         if event.type == pygame.KEYDOWN:
@@ -823,6 +914,24 @@ class Game:
                 self.invert_music()
                 return True
 
+    def buy_thing(self, category, thing):
+        cost = self.data[category][thing]
+        if self.data["coins"] >= cost:
+            self.data[category][thing] = 0
+            self.data["coins"] -= cost
+            return True
+        return False
+
+    def choose_thing(self, category, thing):
+        if self.data[category][thing] == 0:
+            for i in self.data[category]:
+                if self.data[category][i] == "ok":
+                    self.data[category][i] = 0
+                elif i == thing:
+                    self.data[category][thing] = "ok"
+            return True
+        return False
+
     def play_sound(self, sound=None):
         if self.data["sound"]:
             if sound:
@@ -832,7 +941,7 @@ class Game:
 
     def play_fon_music(self, val):
         if val and self.data["music"]:
-            pygame.mixer.music.load('data/fon_music.wav')
+            pygame.mixer.music.load('data/sounds & music/fon_music.wav')
             pygame.mixer.music.play(-1)
         else:
             pygame.mixer.music.stop()
@@ -863,18 +972,18 @@ class Game:
                 "4": -1,
                 "5": -1,
                 "6": 100,
-                "7": 100,
-                "8": 100
+                "7": 150,
+                "8": 200
             },
 
             "coins": 0,
 
-            "heroes": {
-                "classic": 0,
-                "red": 50,
-                "blue": 50,
-                "green": 100,
-                "transparent": 300
+            "hero_colors": {
+                "classic_hero": "ok",
+                "red_hero": 50,
+                "blue_hero": 50,
+                "green_hero": 100,
+                "transparent_hero": 300
             },
 
             "sound": 1,
