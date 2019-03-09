@@ -1,3 +1,6 @@
+# version 1.0
+
+
 import pygame
 import sys
 from json import loads, dumps
@@ -121,6 +124,7 @@ class Player(pygame.sprite.Sprite):
         self.jumping = False
         self.moving_x = (0, 0)
         self.blink = 0
+        self.take_life = False
 
     def cut_sheets(self, sheet1, sheet2):
         self.rect = pygame.Rect(0, 0, sheet1.get_width() // 4, sheet1.get_height() // 4)
@@ -162,13 +166,17 @@ class Player(pygame.sprite.Sprite):
             for sprite in pygame.sprite.spritecollide(self, group, False):
                 if pygame.sprite.collide_mask(self, sprite):
                     if sprite.name in ("enemy", "thorns") and not self.blink:
-                        self.game.lifes -= 1
-                        if self.game.lifes:
-                            self.blink = 50
+                        if not self.take_life:
+                            self.game.lifes -= 1
+                            self.take_life = True
+                            if self.game.lifes:
+                                self.blink = 50
                     return True
             return False
 
     def update(self, *args):
+        self.take_life = False
+
         if self.check_collides(self.game.all_sprites, check_win=True) and not self.blink:
             self.game.victory = True
             return True
@@ -189,7 +197,7 @@ class Player(pygame.sprite.Sprite):
                 self.moving_x = [0, 0]
                 break
         if i:
-            self.game.player.next_pic(self.moving_x[0])
+            self.next_pic(self.moving_x[0])
 
         # движение фона
         for pic in self.game.game_fon:
@@ -198,7 +206,7 @@ class Player(pygame.sprite.Sprite):
 
         # движение по вертикали
         if self.moving_y[1] > 0:
-            for i in range(8):
+            for i in range(10):
                 self.rect.y += self.moving_y[0]
                 if self.check_collides(self.game.block_group):
                     self.rect.y -= self.moving_y[0]
@@ -276,7 +284,7 @@ class Game:
             'flag': load_image('flag.png'),
             'empty': load_image('empty.png'),
             'pause': load_image('pause.png'),
-            'pause_fon': load_image('pause_fon.png'),
+            'dark_fon': load_image('dark_fon.png'),
             'coins': load_image('coins.png'),
             'locked_level': load_image('locked_level.png'),
             'locked_level_pay': load_image('locked_level_pay.png'),
@@ -403,8 +411,9 @@ class Game:
 
     def start_game(self, level):
         # проверка на доступность уровня
-        if self.data["levels"][str(level)] not in (0, "ok"):
-            return False
+        for i in range(1, level):
+            if self.data["levels"][str(i)] != "ok":
+                return False
 
         self.play_fon_music(True)
 
@@ -459,7 +468,7 @@ class Game:
                     if 10 <= x <= 60 and 10 <= y <= 60:
                         answ = self.pause()
                         if answ == "RESTART":
-                            self.all_sprites.clear(self.screen, self.images['pause_fon'])
+                            self.all_sprites.clear(self.screen, self.images['dark_fon'])
                             self.start_game(level)
                             return False
                         elif answ == "Menu":
@@ -513,7 +522,7 @@ class Game:
 
                 answ = self.win(level)
                 if answ in ("RESTART", "NEXT"):
-                    self.all_sprites.clear(self.screen, self.images['pause_fon'])
+                    self.all_sprites.clear(self.screen, self.images['dark_fon'])
                     self.start_game(level + (1 if answ == "NEXT" else 0))
                 return True
 
@@ -521,7 +530,7 @@ class Game:
             if self.lifes == 0:
                 answ = self.lose()
                 if answ == "RESTART":
-                    self.all_sprites.clear(self.screen, self.images['pause_fon'])
+                    self.all_sprites.clear(self.screen, self.images['dark_fon'])
                     self.start_game(level)
                 return False
 
@@ -529,7 +538,7 @@ class Game:
             self.clock.tick(fps)
 
     def pause(self):
-        self.screen.blit(self.images['pause_fon'], (0, 0))
+        self.render_dark()
 
         self.screen.blit(load_image('restart.png'), (220, 230))
         pygame.draw.polygon(self.screen, NEON, [(600, 230), (750, 330), (600, 430)])
@@ -563,7 +572,7 @@ class Game:
     def win(self, level):
         self.play_fon_music(False)
         self.play_sound(pygame.mixer.Sound('data/sounds & music/win.wav'))
-        self.screen.blit(self.images['pause_fon'], (0, 0))
+        self.render_dark()
 
         if self.data["levels"][str(level)] != "ok":
             # размер вознаграждения, если уровень пройден впервые
@@ -637,7 +646,7 @@ class Game:
         self.data['coins'] -= self.got_coins
         self.got_coins = 0
 
-        self.screen.blit(self.images['pause_fon'], (0, 0))
+        self.render_dark()
         self.screen.blit(load_image('restart.png'), (400, 230))
 
         all_elements = {(400, 230, 650, 430): "RESTART"}
@@ -666,6 +675,7 @@ class Game:
 
     def new_game(self):
         self.render_menu_fon()
+        self.render_dark()
         all_elements = dict()
 
         rect = self.render_text("YES", 200, 350, size=80, color=BLUE)
@@ -705,6 +715,7 @@ class Game:
 
     def store(self):
         self.render_menu_fon()
+        self.render_dark()
 
         self.screen.blit(self.images["coins"], (self.WIDTH - 200, 45))
 
@@ -802,13 +813,16 @@ class Game:
 
     def help_info(self):
         self.render_menu_fon()
+        self.render_dark()
+
         all_elements = dict()
         all_elements.update(self.render_bar("help"))
 
-        help_text = [(0, "Правила игры:", 50),
-                     (1, "    - Нужно то-то се-то...", 40)]
-        for i, line, size in help_text:
-            self.render_text(line, 50, 200 + i * 50, size=size, color=WHITE)
+        with open('data/help_info.txt') as data:
+            help_text = data.read().split('\n')
+
+        for i in range(len(help_text)):
+            self.render_text(help_text[i], 50, 140 + i * 40, color=(200, 200, 200))
 
         pygame.display.flip()
 
@@ -825,7 +839,7 @@ class Game:
                     if element:
                         self.play_sound()
                         if all_elements[element[0]] == "Menu":
-                            return 0
+                            return True
                 else:
                     self.check_hot_keys(event)
             self.clock.tick(fps)
@@ -860,6 +874,9 @@ class Game:
             pygame.draw.line(self.screen, (100, 100, 100), (self.WIDTH, 0), (x, self.HEIGHT), 1)
         for y in range(0, self.HEIGHT, 10):
             pygame.draw.line(self.screen, (100, 100, 100), (self.WIDTH, 0), (0, y), 1)
+
+    def render_dark(self):
+        self.screen.blit(self.images['dark_fon'], (0, 0))
 
     def render_text(self, text, x, y, size=30, color=BLACK,
                     italic=False, u=False, center=()):
@@ -993,6 +1010,7 @@ class Game:
 
     def close(self):
         self.render_menu_fon()
+        self.render_dark()
         all_elements = dict()
 
         rect = self.render_text("YES", 200, 350, size=80, color=BLUE)
