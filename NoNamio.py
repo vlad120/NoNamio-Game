@@ -1,7 +1,8 @@
 """
-version 1.1
+version 1.2
 
 new:
+    - исправлена ошибка чтения текстовых файлов на Windows OS
     - исправлен баг с русской клавиатурой
     - добавлены некоторые комментарии, поясняющие работу кода
 """
@@ -846,7 +847,7 @@ class Game:
         all_elements = dict()
         all_elements.update(self.render_bar("help"))
 
-        with open('data/help_info.txt') as data:
+        with open('data/help_info.txt', encoding="utf-8") as data:
             help_text = data.read().split('\n')
 
         for i in range(len(help_text)):
