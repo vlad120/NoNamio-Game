@@ -1,5 +1,10 @@
-# version 1.0
+"""
+version 1.1
 
+new:
+    - исправлен баг с русской клавиатурой
+    - добавлены некоторые комментарии, поясняющие работу кода
+"""
 
 import pygame
 import sys
@@ -62,6 +67,7 @@ class Enemy(pygame.sprite.Sprite):
 
     def update(self, *args):
         if pygame.sprite.spritecollide(self, self.game.block_group, False):
+            # при столкновении с блоком разворот
             self.direction *= -1
         else:
             # проверка на пустоту под ним
@@ -73,6 +79,7 @@ class Enemy(pygame.sprite.Sprite):
                     self.direction *= -1
                 self.rect.y -= 10
                 self.rect.x -= t
+        # движение на 4 пикселя
         self.rect.x += self.direction * 4
 
 
@@ -97,6 +104,7 @@ class Coin(pygame.sprite.Sprite):
                 self.frames.append(sheet.subsurface(pygame.Rect(frame_location, self.rect.size)))
 
     def update(self, *args):
+        # анимация
         self.cur_frame = (self.cur_frame + 1) % len(self.frames)
         self.image = self.frames[self.cur_frame]
 
@@ -136,11 +144,14 @@ class Player(pygame.sprite.Sprite):
                     self.frames2.append(sheet2.subsurface(pygame.Rect(frame_location, self.rect.size)))
 
     def next_pic(self, direction):
+        # сменить картинку (при ходьбе)
         if self.blink % 8 == 0:
             if direction > 0:
+                # в правую сторону
                 self.cur_frame = (self.cur_frame + 1) % len(self.frames1)
                 self.image = self.frames1[self.cur_frame]
             elif direction < 0:
+                # в левую
                 self.cur_frame = (self.cur_frame + 1) % len(self.frames2)
                 self.image = self.frames2[self.cur_frame]
 
@@ -152,6 +163,7 @@ class Player(pygame.sprite.Sprite):
 
     def check_collides(self, group, check_win=False):
         if check_win:
+            # проверка на выигрыш, столкновение с флагом или монетой
             for sprite in pygame.sprite.spritecollide(self, group, False):
                 if pygame.sprite.collide_mask(self, sprite):
                     if sprite.name == "flag":
@@ -163,29 +175,35 @@ class Player(pygame.sprite.Sprite):
                         sprite.kill()
             return False
         else:
+            # проверка на столкновение с заданной группой
             for sprite in pygame.sprite.spritecollide(self, group, False):
                 if pygame.sprite.collide_mask(self, sprite):
+                    # заодно на столкновение с жизнеотнимателями
                     if sprite.name in ("enemy", "thorns") and not self.blink:
-                        if not self.take_life:
+                        if not self.take_life:  # защита от лишней потери жизней
                             self.game.lifes -= 1
                             self.take_life = True
                             if self.game.lifes:
+                                # включаем неуязвимость на
+                                # определенное время
                                 self.blink = 50
                     return True
             return False
 
     def update(self, *args):
-        self.take_life = False
+        self.take_life = False  # отнимать жизни можно опять
 
         if self.check_collides(self.game.all_sprites, check_win=True) and not self.blink:
             self.game.victory = True
             return True
 
+        # при неуязвимости
         if self.blink:
             self.blink -= 1
             if self.blink % 4 == 0:
                 self.image = self.game.images['empty'] if self.blink % 8 else self.frames1[self.cur_frame]
         else:
+            # иначе проверяем на столкновение с передвигающимися врагами
             self.check_collides(self.game.danger_group)
 
         # ход по горизонтали
@@ -240,7 +258,7 @@ class MySprite(pygame.sprite.Sprite):
 
 
 class Camera:
-    # зададим начальный сдвиг камеры
+    # начальный сдвиг камеры
     def __init__(self, game):
         self.dx = 0
         self.dy = 0
@@ -296,11 +314,14 @@ class Game:
 
         self.tile_width = self.tile_height = 70
 
+        # загрузка данных
         try:
             self.data = loads(open('data/data.json', 'rb').read())
         except Exception:
+            # или их создание
             self.null_progress()
 
+        # запуск игры
         self.start_ui()
 
     def start_ui(self):
@@ -314,7 +335,6 @@ class Game:
                          size=120, color=NEON, italic=True, u=True)
 
         self.screen.blit(self.images["coins"], (20, 140))
-
         self.render_text(str(self.data["coins"]), 70, 150,
                          size=40, color=WHITE, italic=True)
 
@@ -326,12 +346,13 @@ class Game:
         img = self.images['sound' if self.data["sound"] else 'non_sound']
         self.screen.blit(img, (30, 200))
         all_elements[(30, 200, 30 + img.get_width(), 200 + img.get_height())] = self.invert_sound
+
         # кнопка вкл/откл музыки
         img = self.images['music' if self.data["music"] else 'non_music']
         self.screen.blit(img, (30, 260))
         all_elements[(30, 260, 30 + img.get_width(), 260 + img.get_height())] = self.invert_music
 
-        # рисуем строку уровней
+        # Строка уровней
         offset = 30  # для параллелепипеда
         space = 10  # между рамками
         frame_width = 50  # размер рамки и цифр
@@ -362,8 +383,8 @@ class Game:
             # обрамляем
             self.frame_obj(rect, offset=offset)
 
-        # рисуем кнопки:
-        # задаем шаблон для всех рамок, нарисовав первую
+        # Центральные кнопки:
+        # задаем шаблон (rect) для всех рамок, нарисовав первую
         rect = self.render_text("New Game", None, 350, size=80, color=BLUE, center=True)
         self.frame_obj(rect)  # обрамляем
         # добовляем в словарь
@@ -382,24 +403,28 @@ class Game:
         # обрабатываем события
         # т.к. меню статичное, ставим наименьший fps, чтобы не нагружать процессор
         fps = 5
+        # при любом обновлении информации на экране,
+        # меню перерисовываем заново, возвращая True для start_ui
         while True:
             for event in pygame.event.get():
+                # коректный выход
                 if event.type == pygame.QUIT:
+                    # спрашиваем пользователя, уверен ли он
                     if not self.close():
                         self.start_ui()
+                # проверка горячих клавиши
                 elif self.check_hot_keys(event):
                     return True
                 # при клике
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button in (1, 3):
                     x, y = event.pos
-                    # нахдим, попала ли мышь в область
-                    # функционирующих элементов
+                    # нахдим, попала ли мышь в область функционирующих элементов
                     element = list(filter(lambda e: e[0] <= x <= e[2] and e[1] <= y <= e[3],
                                           all_elements.keys()))
                     if element:
                         self.play_sound()  # звуковой переход
                         element = all_elements[element[0]]
-                        # вызываем функцию кнопки, если она есть
+                        # вызываем функцию кнопки
                         if type(element) == tuple:
                             # если есть аргумент, передаем его
                             element[0](element[1])
@@ -411,6 +436,8 @@ class Game:
 
     def start_game(self, level):
         # проверка на доступность уровня
+        if self.data["levels"][str(level)] not in (0, "ok"):
+            return False
         for i in range(1, level):
             if self.data["levels"][str(i)] != "ok":
                 return False
@@ -440,6 +467,7 @@ class Game:
         self.generate_level()
         self.camera = Camera(self)
 
+        # независимые спрайты кнопки паузы и монет
         MySprite(self, self.images["pause"], 10, 10, abs_coords=True)
         MySprite(self, self.images["coins"], self.WIDTH - 270, 17, abs_coords=True)
 
@@ -449,22 +477,20 @@ class Game:
 
         keys = {
             (0, -1): False,  # UP
-            (1, 0): False,  # LEFT
-            (-1, 0): False   # RIGHT
+            (1, 0): False,  # RIGHT
+            (-1, 0): False   # LEFT
         }
 
         fps = 50
         running = True
         while running:
-            # обработка событий
             for event in pygame.event.get():
-                # корректный выход
                 if event.type == pygame.QUIT:
                     self.close()
-                # при клике
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button in (1, 3):
                     self.play_sound()
                     x, y = event.pos
+                    # если клик по области кнопки паузы
                     if 10 <= x <= 60 and 10 <= y <= 60:
                         answ = self.pause()
                         if answ == "RESTART":
@@ -475,21 +501,21 @@ class Game:
                             return False
                 # обработка нажатия клавиш
                 elif event.type == pygame.KEYDOWN:
-                    if event.key in (32, 119, 273):
+                    if event.key in (32, 119, 172, 273):  # UP
                         keys[(0, -1)] = True
-                    elif event.key in (100, 275):
+                    elif event.key in (100, 162, 275):  # RIGHT
                         keys[(1, 0)] = True
-                    elif event.key in (97, 276):
+                    elif event.key in (97, 160, 276):  # LEFT
                         keys[(-1, 0)] = True
                     else:
                         self.check_hot_keys(event)
                 # обработка отпускания клавиш
                 elif event.type == pygame.KEYUP:
-                    if event.key in (32, 119, 273):
+                    if event.key in (32, 119, 172, 273):  # UP
                         keys[(0, -1)] = False
-                    elif event.key in (100, 275):
+                    elif event.key in (100, 162, 275):  # RIGHT
                         keys[(1, 0)] = False
-                    elif event.key in (97, 276):
+                    elif event.key in (97, 160, 276):  # LEFT
                         keys[(-1, 0)] = False
 
             # проверка нажатых кнопок
@@ -501,25 +527,24 @@ class Game:
             self.all_sprites.update()
             # изменяем ракурс камеры
             self.camera.update(self.player)
-            # # обновляем положение всех спрайтов
+            # обновляем положение всех спрайтов
             for sprite in self.all_sprites:
                 if sprite.name != "other":
                     self.camera.apply(sprite)
+
             # перерисовываем экран со спрайтами
             self.screen.fill((0, 0, 0))
             self.all_sprites.draw(self.screen)
 
-            # отображение жизней
+            # отображаем жизни
             for i in range(self.lifes):
                 pygame.draw.circle(self.screen, RED, (self.WIDTH - 40 - i * 30, 40), 10)
-
-            # отображение денег
+            # деньги
             self.render_text(str(self.data["coins"]), self.WIDTH - 220, 27,
                              size=40, color=BLACK, italic=True)
 
             # проверка на выигрыш
             if self.victory:
-
                 answ = self.win(level)
                 if answ in ("RESTART", "NEXT"):
                     self.all_sprites.clear(self.screen, self.images['dark_fon'])
@@ -593,28 +618,31 @@ class Game:
         all_elements = dict()
         all_elements.update(self.render_bar("WIN"))
 
-        self.next_level = -1
+        next_level = -1
         if level < len(self.data["levels"]):
             # если следующий уровень бесплатный, разблокируем
             if self.data["levels"][str(level + 1)] == -1:
                 self.data["levels"][str(level + 1)] = 0
-                self.next_level = 1
+                next_level = 1
             elif self.data["levels"][str(level + 1)] in (0, "ok"):
-                self.next_level = 1
+                next_level = 1
             else:
-                self.next_level = 0
+                next_level = 0
+        elif self.lifes != 3:
+            next_level = 0
 
-        if self.next_level == 1:
+        if next_level == 1:
             self.screen.blit(load_image('restart.png'), (220, 230))
             self.screen.blit(load_image('next.png'), (600, 230))
             all_elements.update({(220, 230, 420, 430): "RESTART",
                                  (600, 230, 750, 430): "NEXT"})
-        elif self.next_level == 0:
-            # если доступных уровней нет, но остались платные
+        elif next_level == 0:
+            # доступных уровней нет,
+            # или последний уровень пройден не идеально
             self.screen.blit(load_image('restart.png'), (400, 230))
             all_elements.update({(400, 230, 650, 430): "RESTART"})
         else:
-            # если уровни закончились
+            # игра закончена
             self.render_text("YOU WON!!!", None, 200, size=120, color=NEON, center=True)
             self.render_text("ALL LEVELS UNLOCKED!", None, 350, size=60, color=NEON, center=True)
 
@@ -822,6 +850,7 @@ class Game:
             help_text = data.read().split('\n')
 
         for i in range(len(help_text)):
+            # построчно отображаем текст из информационного файла
             self.render_text(help_text[i], 50, 140 + i * 40, color=(200, 200, 200))
 
         pygame.display.flip()
@@ -849,20 +878,28 @@ class Game:
             for x in range(len(self.level_map[0])):
                 if self.level_map[y][x] == '#':
                     Tile(self, 'ground', x, y, self.block_group, self.tiles_group, name="ground")
+
                 elif self.level_map[y][x] == '+':
                     Tile(self, 'box', x, y, self.block_group, self.tiles_group, name="box")
+
                 elif self.level_map[y][x] == '%':
                     Tile(self, 'stones', x, y, self.block_group, self.tiles_group, name="stones")
+
                 elif self.level_map[y][x] == '^':
                     Tile(self, 'thorns', x, y, self.block_group, self.danger_group, name="thorns")
+
                 elif self.level_map[y][x] == '-':
                     Tile(self, 'step', x, y, self.block_group, name='step')
+
                 elif self.level_map[y][x] == '*':
                     Enemy(self, x, y)
+
                 elif self.level_map[y][x] == '&':
                     Tile(self, 'flag', x, y, name="flag")
+
                 elif self.level_map[y][x] == "$":
                     Coin(self, x, y)
+
                 elif self.level_map[y][x] == '@':
                     player = (x, y)
 
@@ -933,6 +970,7 @@ class Game:
 
     def buy_thing(self, category, thing):
         cost = self.data[category][thing]
+        # если достаточно денег
         if self.data["coins"] >= cost:
             self.data[category][thing] = 0
             self.data["coins"] -= cost
@@ -940,6 +978,7 @@ class Game:
         return False
 
     def choose_thing(self, category, thing):
+        # если предмет куплен
         if self.data[category][thing] == 0:
             for i in self.data[category]:
                 if self.data[category][i] == "ok":
