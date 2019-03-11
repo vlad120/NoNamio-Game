@@ -1,10 +1,22 @@
 """
-version 1.2
+NoNamio-Game version 1.2.1  11/03/2019
 
-new:
+
+ -------------------------------
+|     Mironov Vladislav (R)     |
+ -------------------------------
+
+
+Новое в версии 1.2.1:
+    - убраны лишние звуки при случайных нажатиях мышью в процессе игры
+
+Новое в версии 1.2:
     - исправлена ошибка чтения текстовых файлов на Windows OS
+
+Новое в версии 1.1:
     - исправлен баг с русской клавиатурой
     - добавлены некоторые комментарии, поясняющие работу кода
+
 """
 
 import pygame
@@ -489,10 +501,10 @@ class Game:
                 if event.type == pygame.QUIT:
                     self.close()
                 elif event.type == pygame.MOUSEBUTTONDOWN and event.button in (1, 3):
-                    self.play_sound()
                     x, y = event.pos
                     # если клик по области кнопки паузы
                     if 10 <= x <= 60 and 10 <= y <= 60:
+                        self.play_sound()
                         answ = self.pause()
                         if answ == "RESTART":
                             self.all_sprites.clear(self.screen, self.images['dark_fon'])
